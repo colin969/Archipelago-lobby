@@ -78,7 +78,7 @@ pub struct RoomListEntry {
     id: RoomId,
     name: String,
     description: String,
-    close_date: NaiveDateTime,
+    close_date: i64,
     locked: bool,
     author_id: i64,
     hashtags: Vec<String>,
@@ -123,7 +123,7 @@ pub(crate) async fn list_open_rooms(
             name: room.settings.name,
             hashtags: extract_hashtags(&room.settings.description),
             description: room.settings.description,
-            close_date: room.settings.close_date,
+            close_date: room.settings.close_date.and_utc().timestamp(),
             locked: room.settings.locked,
             author_id: room.settings.author_id,
         })
