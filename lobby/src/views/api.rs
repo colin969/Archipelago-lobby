@@ -1,8 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::anyhow;
 use chrono::{NaiveDateTime, Utc};
 use http::header::CONTENT_DISPOSITION;
+use once_cell::sync::Lazy;
+use regex::Regex;
 use rocket::{
     delete, get,
     http::{Header, Status},
@@ -69,6 +71,65 @@ pub struct RoomInfo {
     yamls: Vec<YamlInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     server_info: Option<RoomServerInfo>,
+}
+
+#[derive(Serialize)]
+pub struct RoomListEntry {
+    id: RoomId,
+    name: String,
+    description: String,
+    close_date: NaiveDateTime,
+    locked: bool,
+    author_id: i64,
+    hashtags: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct RoomListResponse {
+    rooms: Vec<RoomListEntry>,
+}
+
+fn extract_hashtags(text: &str) -> Vec<String> {
+    static RE_HASHTAG: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"(?:^|[^A-Za-z0-9/])#(\w+)").unwrap());
+
+    let mut seen = HashSet::new();
+    RE_HASHTAG
+        .captures_iter(text)
+        .map(|captures| captures[1].to_lowercase())
+        .filter(|tag| seen.insert(tag.clone()))
+        .collect()
+}
+
+#[get("/rooms")]
+#[tracing::instrument(skip(_session, ctx))]
+pub(crate) async fn list_open_rooms(
+    _session: AdminSession,
+    ctx: &State<Context>,
+) -> ApiResult<Json<RoomListResponse>> {
+    let mut conn = ctx.db_pool.get().await?;
+
+    let (rooms, _) = db::list_rooms(
+        db::RoomFilter::default().with_open_state(db::OpenState::Open),
+        None,
+        &mut conn,
+    )
+    .await?;
+
+    let rooms = rooms
+        .into_iter()
+        .map(|room| RoomListEntry {
+            id: room.id,
+            name: room.settings.name,
+            hashtags: extract_hashtags(&room.settings.description),
+            description: room.settings.description,
+            close_date: room.settings.close_date,
+            locked: room.settings.locked,
+            author_id: room.settings.author_id,
+        })
+        .collect();
+
+    Ok(Json(RoomListResponse { rooms }))
 }
 
 #[get("/room/<room_id>")]
@@ -734,6 +795,7 @@ pub fn routes() -> Vec<rocket::Route> {
         retry_yaml,
         yaml_info,
         room_info,
+        list_open_rooms,
         bulk_yamls,
         refresh_patches,
         slots_passwords,
@@ -744,4 +806,29 @@ pub fn routes() -> Vec<rocket::Route> {
         delete_yaml_api,
         change_yaml_owner,
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_hashtags;
+
+    #[test]
+    fn test_extract_hashtags() {
+        assert_eq!(
+            extract_hashtags("sign up here #mclabsync #weekly"),
+            vec!["mclabsync", "weekly"]
+        );
+        assert_eq!(extract_hashtags("#MCLabSync and #mclabsync"), vec!["mclabsync"]);
+        assert_eq!(extract_hashtags("no tags here"), Vec::<String>::new());
+        assert_eq!(extract_hashtags(""), Vec::<String>::new());
+        assert_eq!(extract_hashtags("#b comes #a first"), vec!["b", "a"]);
+        assert_eq!(
+            extract_hashtags("see https://example.com/#faq for info"),
+            Vec::<String>::new()
+        );
+        assert_eq!(extract_hashtags("mid#word"), Vec::<String>::new());
+        assert_eq!(extract_hashtags("#start of string"), vec!["start"]);
+        assert_eq!(extract_hashtags("tab\t#tag and\n#newline"), vec!["tag", "newline"]);
+        assert_eq!(extract_hashtags("(#parens) and text.#dot"), vec!["parens", "dot"]);
+    }
 }
