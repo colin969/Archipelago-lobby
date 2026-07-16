@@ -6,9 +6,17 @@ RUN apt update && \
 
 WORKDIR /app
 
-COPY ./community-ap-tools ./
-COPY Cargo.lock ./
-COPY ./common /common
+COPY Cargo.toml Cargo.lock ./
+COPY apx/Cargo.toml ./apx/
+
+COPY ./apx ./
+
+# Cache deps
+RUN mkdir -p apx/src && echo "fn main() {}" > apx/src/main.rs && \
+    cargo build --release -p apx && \
+    rm -rf apx/src
+
+COPY apx/src ./apx/src
 
 RUN cargo build --release
 
@@ -20,6 +28,6 @@ RUN apt update && \
 
 WORKDIR /app
 
-COPY --from=builder /app/target/release/community-ap-tools ./
+COPY --from=builder /app/target/release/apx ./
 
-CMD ["/app/community-ap-tools"]
+CMD ["/app/apx"]

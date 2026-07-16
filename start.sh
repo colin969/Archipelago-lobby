@@ -53,7 +53,7 @@ EOF
 
 fi
 
-COMMUNITY=false
+COMMUNITY=true
 ARGS=()
 
 for arg in "$@"; do
@@ -68,10 +68,8 @@ for arg in "$@"; do
 done
 
 if [[ "$COMMUNITY" == "true" ]]; then
-    if [[ -z "$EXTRA_COMPOSE" ]]; then
-        echo "error: --community requires EXTRA_COMPOSE to be set"
-        exit 1
-    fi
+    # Stop docker compose getting upset when starting services before we've made it later
+    touch .env.community
 
     echo "== Starting base services =="
     "$DC" up -d postgres valkey
@@ -103,7 +101,7 @@ if [[ "$COMMUNITY" == "true" ]]; then
     done
     echo "AP WebHost is up at http://localhost:9888"
 
-    if [[ ! -f ".env.community" ]]; then
+    if [[ ! -s ".env.community" ]]; then
         echo ""
         echo "== Community setup =="
         echo "1. Go to http://localhost:8000 and create a room in the lobby"

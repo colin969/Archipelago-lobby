@@ -855,7 +855,7 @@ async fn main() -> crate::error::Result<()> {
     let ap_api_root = std::env::var("AP_API_ROOT")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or_else(|| Url::from_str(&format!("https://{}", ap_room_host)).unwrap());
+        .unwrap_or_else(|| Url::from_str(&format!("{}", ap_room_host)).unwrap());
 
     eprintln!("[STARTUP] AP_API_ROOT: {}", ap_api_root);
     eprintln!("[STARTUP] AP_ROOM_HOST: {}", ap_room_host);

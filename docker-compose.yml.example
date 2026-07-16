@@ -141,3 +141,49 @@ services:
     depends_on:
       lobby:
         condition: service_healthy
+
+  ap-webhost:
+    image: ghcr.io/archipelagomw/archipelago:nightly
+    environment:
+      PORT: 9888
+    ports:
+      - "127.0.0.1:9888:9888"
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+
+  apx:
+    build:
+      dockerfile: apx/Dockerfile
+      context: .
+      args:
+        SRC: /
+        DOCKER_SRC: apx/
+    environment:
+      PORT: "9002"
+      AP_ROOM_HOST: "ap-webhost"
+    env_file:
+      - ./.env.community
+    ports:
+      - "127.0.0.1:9002:9002"
+
+  community-ap-tools:
+    build:
+      dockerfile: community-ap-tools/Dockerfile
+      context: .
+      args:
+        SRC: /
+        DOCKER_SRC: community-ap-tools/
+    environment:
+      LOBBY_ROOT_URL: "http://lobby:8000"
+      LOBBY_API_KEY: "changeme"
+      AP_ROOM_HOST: "http://ap-webhost:9888"
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/aplobby
+      AP_API_ROOT: "ap-webhost"
+      APX_API_ROOT: "http://apx:9002"
+      ROCKET_SECRET_KEY: "changemechangemechangemechangemechangeme1234"
+    volumes:
+      - ./Rocket.community.toml:/app/Rocket.toml:ro
+    env_file:
+      - ./.env.community
+    ports:
+      - "127.0.0.1:9003:8000"
