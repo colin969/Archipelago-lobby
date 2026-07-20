@@ -469,9 +469,9 @@ async function showYamlModal(yamlId) {
     }
     titleActions.push(h("button", { id: "notes-toggle-btn", className: "small", onclick: toggleNotesPanel }, "Notes"));
 
-    const notesPanel = h("div", { className: "notes-panel hidden" });
+    const notesPanel = h("div", { className: "notes-panel" });
     const mainArea = h("div", { className: "modal-main" }, viewerDiv, notesPanel);
-
+    
     mc.replaceChildren(
         h("h3", null,
             yaml.player_name + " ",
@@ -512,6 +512,7 @@ async function showYamlModal(yamlId) {
             );
             mainArea.before(editInfo);
         }
+        renderNotes(currentModalYamlId);
     } catch (e) {
         codeEl.textContent = "Failed to load YAML content. Maybe it got removed?";
     }
