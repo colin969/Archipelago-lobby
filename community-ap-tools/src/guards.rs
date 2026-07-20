@@ -8,7 +8,7 @@ use rocket::{
     request::{FromRequest, Outcome},
 };
 use scraper::{Html, Selector};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::Config;
@@ -43,16 +43,31 @@ pub struct RoomStatus {
     pub tracker: String,
 }
 
+#[derive(Serialize, Debug)]
+pub struct MergedSlotInfo {
+    pub id: usize,
+    pub name: String,
+    pub game: String,
+    pub checks: (u64, u64),
+    pub status: SlotStatus,
+    pub last_activity: Option<f64>,
+    pub lobby_slot_id: Uuid,
+    pub discord_handle: String,
+    pub discord_id: i64,
+    pub has_patch: bool,
+    pub password: Option<String>,
+}
+
 pub struct ApRoom {
     pub tracker_info: TrackerInfo,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct TrackerInfo {
     pub slots: Vec<SlotInfo>,
 }
 
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone, Serialize)]
 pub enum SlotStatus {
     Disconnected,
     Connected,
@@ -113,7 +128,7 @@ impl Display for SlotStatus {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SlotInfo {
     pub id: usize,
     pub name: String,

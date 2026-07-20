@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, ffi::OsStr, path::PathBuf, str::FromStr};
+use std::{collections::HashMap, str::FromStr};
 
 use anyhow::{Context, anyhow};
 use askama::Template;
@@ -12,8 +12,9 @@ use reqwest::{
 };
 use rocket::catchers;
 use rocket::{
-    Request, State, catch, http::ContentType, response::Redirect, routes, serde::json::Json,
+    Request, State, catch, response::Redirect, routes, serde::json::Json,
 };
+use rocket::fs::{FileServer, relative};
 use rocket_oauth2::OAuth2;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
@@ -33,7 +34,6 @@ use diesel_migrations::{EmbeddedMigrations, embed_migrations};
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
 pub const STATIC_VERSION: &str = std::env!("STATIC_VERSION");
-
 pub struct Discord;
 
 #[derive(Template, WebTemplate)]
@@ -94,23 +94,6 @@ pub struct DeathlinksIndexTpl {
     slots: Vec<DeathlinksSlot>,
     deathlinks: Vec<Deathlink>,
     deaths_by_slot: Vec<SlotDeathCount>,
-}
-
-#[derive(rust_embed::RustEmbed)]
-#[folder = "./static/"]
-struct Assets;
-
-#[rocket::get("/static/<file..>")]
-fn dist(file: PathBuf) -> Option<(ContentType, Cow<'static, [u8]>)> {
-    let filename = file.display().to_string();
-    let asset = Assets::get(&filename)?;
-    let content_type = file
-        .extension()
-        .and_then(OsStr::to_str)
-        .and_then(ContentType::from_extension)
-        .unwrap_or(ContentType::Bytes);
-
-    Some((content_type, asset.data))
 }
 
 #[catch(401)]
@@ -597,7 +580,7 @@ async fn check_session(config: &Config) -> crate::error::Result<bool> {
         Ok(r) => r,
         Err(e) => {
             eprintln!("[STARTUP] Failed to fetch session check URL: {}", e);
-            return Err(e.into());
+            return Ok(false);
         }
     };
 
@@ -856,6 +839,10 @@ async fn main() -> crate::error::Result<()> {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or_else(|| Url::from_str(&format!("{}", ap_room_host)).unwrap());
+    let ap_api_root = std::env::var("AP_API_ROOT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_else(|| Url::from_str(&format!("{}", ap_room_host)).unwrap());
 
     eprintln!("[STARTUP] AP_API_ROOT: {}", ap_api_root);
     eprintln!("[STARTUP] AP_ROOM_HOST: {}", ap_room_host);
@@ -894,7 +881,6 @@ async fn main() -> crate::error::Result<()> {
         .mount(
             "/",
             routes![
-                dist,
                 root,
                 deathlinks,
                 proxy_add_exclusion,
@@ -912,6 +898,7 @@ async fn main() -> crate::error::Result<()> {
                 remove_deferred_datapackage_game
             ],
         )
+        .mount("/static", FileServer::from(relative!("static")))
         .mount("/auth", auth::routes())
         .mount("/", review::page::routes())
         .mount("/api", review::api::routes())

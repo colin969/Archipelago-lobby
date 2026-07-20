@@ -126,37 +126,39 @@ async fn handle_connection(
         for packet in packets {
             match packet {
                 ApPacket::Connect(mut connect_msg) => {
-                    let passwords = slot_passwords.read().await;
-                    match passwords.get(&connect_msg.name) {
-                        None => {
-                            // No password assigned to slot name
-                            println!("Bad slot");
-                            let refused_msg = MsgConnectionRefused {
-                                errors: vec!["InvalidSlot".to_owned()]
-                            };
-                            let json_msg = serde_json::to_string(&vec![ApPacket::ConnectionRefused(refused_msg)]).unwrap();
-                            outgoing.send(Message::Text(json_msg.into())).await.ok();
-                        },
-                        Some(slot_password) => {
-                            // Password found for slot name, now compare to given password
-                            println!("Slot found, checking password");
-                            let provided = connect_msg.password.as_deref().unwrap_or("");
-                            if provided != slot_password {
-                                println!("Bad password");
-                                let refused_msg = MsgConnectionRefused {
-                                    errors: vec!["InvalidPassword".to_owned()]
-                                };
-                                let json_msg = serde_json::to_string(&vec![ApPacket::ConnectionRefused(refused_msg)]).unwrap();
-                                outgoing.send(Message::Text(json_msg.into())).await.ok();
-                            } else {
-                                println!("Proxying...");
-                                connect_msg.password = None;
-                                // Allow access to server, forward on the message and just act as a proxy. Another function maybe?
-                                proxy_connection(ap_host.clone(), connect_msg, addr,&mut outgoing, &mut incoming).await;
-                                return;
-                            }
-                        }
-                    }
+                    proxy_connection(ap_host.clone(), connect_msg, addr,&mut outgoing, &mut incoming).await;
+
+                    // let passwords = slot_passwords.read().await;
+                    // match passwords.get(&connect_msg.name) {
+                    //     None => {
+                    //         // No password assigned to slot name
+                    //         println!("Bad slot");
+                    //         let refused_msg = MsgConnectionRefused {
+                    //             errors: vec!["InvalidSlot".to_owned()]
+                    //         };
+                    //         let json_msg = serde_json::to_string(&vec![ApPacket::ConnectionRefused(refused_msg)]).unwrap();
+                    //         outgoing.send(Message::Text(json_msg.into())).await.ok();
+                    //     },
+                    //     Some(slot_password) => {
+                    //         // Password found for slot name, now compare to given password
+                    //         println!("Slot found, checking password");
+                    //         let provided = connect_msg.password.as_deref().unwrap_or("");
+                    //         if provided != slot_password {
+                    //             println!("Bad password");
+                    //             let refused_msg = MsgConnectionRefused {
+                    //                 errors: vec!["InvalidPassword".to_owned()]
+                    //             };
+                    //             let json_msg = serde_json::to_string(&vec![ApPacket::ConnectionRefused(refused_msg)]).unwrap();
+                    //             outgoing.send(Message::Text(json_msg.into())).await.ok();
+                    //         } else {
+                    //             println!("Proxying...");
+                    //             connect_msg.password = None;
+                    //             // Allow access to server, forward on the message and just act as a proxy. Another function maybe?
+                    //             proxy_connection(ap_host.clone(), connect_msg, addr,&mut outgoing, &mut incoming).await;
+                    //             return;
+                    //         }
+                    //     }
+                    // }
                 }
                 ApPacket::GetDataPackage(gdp_msg) => {
                     // TODO
@@ -230,7 +232,7 @@ async fn get_room_info(
         return Err(anyhow::anyhow!("Expected RoomInfo as first packet"));
     };
     // Set password to true so that clients will send per-slot passwords later
-    room_info.password = true;
+    // room_info.password = true;
     println!("Connected to AP server and gotten RoomInfo: {}", serde_json::to_string(&room_info)?);
     *room_info_lock.write().await = Some(room_info);
     

@@ -1,0 +1,5 @@
+services:
+  community-ap-tools:
+    build:
+      args:
+        PROFILE: debug

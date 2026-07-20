@@ -9,6 +9,7 @@ use uuid::Uuid;
 use crate::Config;
 use crate::auth::{AdminSession, LoggedInSession};
 use crate::error;
+use crate::guards::{ApRoom, LobbyRoom, SlotPasswords, MergedSlotInfo};
 use crate::review::Role;
 use crate::review::db;
 
@@ -414,6 +415,44 @@ async fn delete_note(
     Ok(())
 }
 
+#[rocket::get("/tracker_info")]
+async fn get_tracker_info(
+    _session: LoggedInSession,
+    ap_room: ApRoom,
+    lobby_room: LobbyRoom,
+    slot_passwords: SlotPasswords,
+) -> crate::error::Result<Json<Vec<MergedSlotInfo>>> {
+    if lobby_room.yamls.len() != ap_room.tracker_info.slots.len() {
+        return Err(error::internal_server_error("The AP room slot number doesn't match the lobby, this won't work"));
+    }
+
+    let slots = ap_room
+        .tracker_info
+        .slots
+        .into_iter()
+        .map(|slot| {
+            let yaml = &lobby_room.yamls[slot.id - 1];
+            let password = slot_passwords.0[slot.id - 1].password.clone();
+
+            MergedSlotInfo {
+                id: slot.id,
+                name: slot.name,
+                game: slot.game,
+                checks: slot.checks,
+                status: slot.status,
+                last_activity: slot.last_activity,
+                lobby_slot_id: yaml.id,
+                discord_handle: yaml.discord_handle.clone(),
+                discord_id: yaml.discord_id,
+                has_patch: yaml.has_patch,
+                password,
+            }
+        })
+        .collect();
+
+    Ok(Json(slots))
+}
+
 pub fn routes() -> Vec<rocket::Route> {
     routes![
         get_room_preset,
@@ -429,5 +468,6 @@ pub fn routes() -> Vec<rocket::Route> {
         get_notes,
         add_note,
         delete_note,
+        get_tracker_info,
     ]
 }

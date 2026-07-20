@@ -47,6 +47,14 @@ pub fn not_found(msg: impl Into<String>) -> Error {
     }
 }
 
+pub fn internal_server_error(msg: impl Into<String>) -> Error {
+    Error {
+        error: anyhow::anyhow!("{}", msg.into()),
+        status: Status::InternalServerError,
+    }
+}
+
+
 impl Responder<'_, 'static> for Error {
     fn respond_to(self, req: &Request<'_>) -> response::Result<'static> {
         let error = self.error.to_string();

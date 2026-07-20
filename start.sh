@@ -134,7 +134,7 @@ if [[ "$COMMUNITY" == "true" ]]; then
     "$DC" up -d apx
 
     echo "== Starting community-ap-tools =="
-    "$DC" up "${ARGS[@]}" community-ap-tools
+    #"$DC" up "${ARGS[@]}" community-ap-tools
 else
     "$DC" up "${ARGS[@]}"
 fi

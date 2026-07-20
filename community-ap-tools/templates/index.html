@@ -1,11 +1,15 @@
 <html>
     <head>
         <link rel="stylesheet" href="/static/contrib/font-awesome/css/all.min.css">
+        <link rel="stylesheet" href="/static/tabulator_midnight.min.css">
+        <script src="/static/review-utils.js"></script>
+        <script src="/static/tabulator.min.js"></script>
         <style>
-* {
-   color: white;
-   background: black;
-   box-sizing: border-box;
+
+body {
+    width: 100%;
+    min-height: 100%;
+    margin: 0;
 }
 
 table, tr, td {
@@ -14,16 +18,14 @@ table, tr, td {
 }
 table {
     margin-bottom: 1em;
+    color: white;
 }
 td {
     padding: 2px;
 }
 
 .slot-status {
-    height: 100%;
-    padding-left: .5em;
-    margin-right: .2em;
-    margin-left: .2em;
+    font-weight: bold
 }
 
 .slot-status-green {
@@ -38,6 +40,22 @@ td {
     background-color: red
 }
 
+.slot-status-Disconnected {
+    color: red
+}
+
+.slot-status-Connected, .slot-status-Ready, .slot-status-Playing {
+    color: yellow
+}
+
+.slot-status-GoalCompleted {
+    color: green
+}
+
+.page-wrapper {
+    padding: 1rem;
+}
+
 .error-box {
     background-color: #610505;
     padding: 0.5em;
@@ -50,75 +68,83 @@ td {
         {% if !is_session_valid %}
         <div class="error-box">The currently provided session is invalid. Commands will fail silently. Nothing I can do about the silent part...</div>
         {% endif %}
-        <table>
-            <tr>
-                <td>Lobby Room</td>
-                <td><a href="{{ lobby_root_url}}room/{{lobby_room.id}}">{{ lobby_room.name }}</a></td>
-            </tr>
-            <tr>
-                <td>Pages</td>
-                <td><a href="/deathlinks">Deathlinks</a></td>
-            </tr>
-        </table>
 
-        <div>
-        Slots to ping (not connected, 0 checks):
-        <ul>
-        {% for slot_chunk in unclaimed_slots.chunks(10) %}
-            <li>
-            {% for slot in slot_chunk %}
+        <div class="page-wrapper">
+            <table>
+                <tr>
+                    <td>Lobby Room</td>
+                    <td><a href="{{ lobby_root_url}}room/{{lobby_room.id}}">{{ lobby_room.name }}</a></td>
+                </tr>
+                <tr>
+                    <td>Pages</td>
+                    <td><a href="/deathlinks">Deathlinks</a></td>
+                </tr>
+            </table>
+
+            <div id="review-table"></div>
+
+            <script defer>
+                createTrackerTable("#review-table");
+            </script>
+
+            <table>
+                {% for slot in ap_room.tracker_info.slots %}
                 {% let lobby_slot = lobby_room.yamls[slot.id - 1] %}
-                <span data-discord-id="{{ lobby_slot.discord_id }}">@{{ lobby_slot.discord_handle|lower }}</span>
-            {% endfor %}
-            <button onclick="copySlotHandles(this); return false" style="margin-left: 10px; cursor: pointer;">
-                <i class="fa-solid fa-copy"></i>
-            </button>
-            </li>
-        {% endfor %}
-        </ul>
+                {% let password_info = slot_passwords.0[slot.id - 1] %}
+                <tr>
+                    <td><span class="slot-status slot-status-{{ slot|slot_status }}"></span></td>
+                    <td>{{ slot.name }}</td>
+                    <td>{{ slot.game }}</td>
+                    <td>{{ slot.status }} ({{ slot.checks.0 }} / {{ slot.checks.1 }})</td>
+                    <td>Last active: {{ slot|last_active }}</td>
+                    <td>@{{ lobby_slot.discord_handle }}</td>
+                    <td>
+                        <a onclick='openPasswordPopup("{{lobby_slot.id}}", "{{slot.name}}", {% match password_info.password %}{% when Some with (pwd) %}"{{pwd}}"{% when None %}null{% endmatch %}); return false' href="#">
+                            Password
+                        </a>
+                    </td>
+                    <td>
+                        <a onclick='openChangeOwnerPopup("{{lobby_slot.id}}", "{{slot.name}}", {% match password_info.password %}{% when Some with (pwd) %}"{{pwd}}"{% when None %}null{% endmatch %}); return false' href="#">
+                            Change Owner
+                        </a>
+                    </td>
+                    <td><a onclick='openRelease("{{slot.name}}", "{{slot.game}}"); return false' href="#">Release</a></td>
+                    <td><a onclick='openAction("hint", "{{slot.name}}", "{{slot.game}}", "item"); return false' href="#">Hint item</a></td>
+                    <td><a onclick='openAction("give", "{{slot.name}}", "{{slot.game}}", "item"); return false' href="#">Give item</a></td>
+                    <td><a onclick='openAction("hint", "{{slot.name}}", "{{slot.game}}", "location"); return false' href="#">Hint location</a></td>
+                    <td><a onclick='openAction("give", "{{slot.name}}", "{{slot.game}}", "location"); return false' href="#">Give location</a></td>
+                    <td>
+                        {% if lobby_slot.has_patch %}
+                        <a href="{{lobby_root_url}}/room/{{lobby_room.id}}/patch/{{lobby_slot.id}}">Patch</a>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </table>
+
+            <div>
+                Slots to ping (not connected, 0 checks):
+                <ul>
+                {% for slot_chunk in unclaimed_slots.chunks(10) %}
+                    <li>
+                    {% for slot in slot_chunk %}
+                        {% let lobby_slot = lobby_room.yamls[slot.id - 1] %}
+                        <span data-discord-id="{{ lobby_slot.discord_id }}">@{{ lobby_slot.discord_handle|lower }}</span>
+                    {% endfor %}
+                    <button onclick="copySlotHandles(this); return false" style="margin-left: 10px; cursor: pointer;">
+                        <i class="fa-solid fa-copy"></i>
+                    </button>
+                    </li>
+                {% endfor %}
+                </ul>
+            </div>
+
+            <ul>
+                <li><span class="slot-status slot-status-green"></span> Slot is ok</li>
+                <li><span class="slot-status slot-status-yellow"></span> Slot is BK'd since &gt; 30mn or connected without any check done</li>
+                <li><span class="slot-status slot-status-red"></span> Slot is BK'd since &gt; 1h. Or disconnected, no checks.</li>
+            </ul>
         </div>
-
-
-        <table>
-            {% for slot in ap_room.tracker_info.slots %}
-            {% let lobby_slot = lobby_room.yamls[slot.id - 1] %}
-            {% let password_info = slot_passwords.0[slot.id - 1] %}
-            <tr>
-                <td><span class="slot-status slot-status-{{ slot|slot_status }}"></span></td>
-                <td>{{ slot.name }}</td>
-                <td>{{ slot.game }}</td>
-                <td>{{ slot.status }} ({{ slot.checks.0 }} / {{ slot.checks.1 }})</td>
-                <td>Last active: {{ slot|last_active }}</td>
-                <td>@{{ lobby_slot.discord_handle }}</td>
-                <td>
-                    <a onclick='openPasswordPopup("{{lobby_slot.id}}", "{{slot.name}}", {% match password_info.password %}{% when Some with (pwd) %}"{{pwd}}"{% when None %}null{% endmatch %}); return false' href="#">
-                        Password
-                    </a>
-                </td>
-                <td>
-                    <a onclick='openChangeOwnerPopup("{{lobby_slot.id}}", "{{slot.name}}", {% match password_info.password %}{% when Some with (pwd) %}"{{pwd}}"{% when None %}null{% endmatch %}); return false' href="#">
-                        Change Owner
-                    </a>
-                </td>
-                <td><a onclick='openRelease("{{slot.name}}", "{{slot.game}}"); return false' href="#">Release</a></td>
-                <td><a onclick='openAction("hint", "{{slot.name}}", "{{slot.game}}", "item"); return false' href="#">Hint item</a></td>
-                <td><a onclick='openAction("give", "{{slot.name}}", "{{slot.game}}", "item"); return false' href="#">Give item</a></td>
-                <td><a onclick='openAction("hint", "{{slot.name}}", "{{slot.game}}", "location"); return false' href="#">Hint location</a></td>
-                <td><a onclick='openAction("give", "{{slot.name}}", "{{slot.game}}", "location"); return false' href="#">Give location</a></td>
-                <td>
-                    {% if lobby_slot.has_patch %}
-                    <a href="{{lobby_root_url}}/room/{{lobby_room.id}}/patch/{{lobby_slot.id}}">Patch</a>
-                    {% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-        </table>
-
-        <ul>
-            <li><span class="slot-status slot-status-green"></span> Slot is ok</li>
-            <li><span class="slot-status slot-status-yellow"></span> Slot is BK'd since &gt; 30mn or connected without any check done</li>
-            <li><span class="slot-status slot-status-red"></span> Slot is BK'd since &gt; 1h. Or disconnected, no checks.</li>
-        </ul>
     </body>
 
     <script>
