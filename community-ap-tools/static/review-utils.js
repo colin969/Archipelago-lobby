@@ -240,7 +240,7 @@ function refreshSlotsToPing() {
             button.onclick = function () {
                 navigator.clipboard.writeText(mentions + " you are not connected. If you need help please speak in the AP support channel. If you are connected in the meantime all good, you can ignore the ping");
             };
-            li.appendChild(button.cloneNode(true));
+            li.appendChild(button);
             ul.appendChild(li);
         }
     
