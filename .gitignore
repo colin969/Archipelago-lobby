@@ -11,3 +11,4 @@ __pycache__/
 /apdiff-viewer/docker-compose.yml
 /apdiff-viewer/pgdata
 /apdiff-viewer/blobs
+.vscode

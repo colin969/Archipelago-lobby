@@ -379,7 +379,10 @@ pub async fn download_yamls<'a>(
         zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
     let mut emitted_names = HashSet::new();
 
-    for yaml in yamls {
+    // Long ass way to get keys to sort by
+    let mut yamls_with_names: Vec<(String, _)> = yamls
+    .into_iter()
+    .map(|yaml| {
         let player_name = yaml.sanitized_name();
         let mut original_file_name = format!("{player_name}.yaml");
 
@@ -394,8 +397,19 @@ pub async fn download_yamls<'a>(
                 suffix += 1;
             }
         }
-        writer.start_file(original_file_name.clone(), options)?;
         emitted_names.insert(original_file_name.to_lowercase());
+        (original_file_name, yaml)
+    })
+    .collect();
+
+    // Sort alphabetically by file name, case-insensitive (built earlier), so we can match slot id easier later
+    yamls_with_names.sort_by_cached_key(|(name, _)| name.to_lowercase());
+
+    for (index, (_file_name, yaml)) in yamls_with_names.iter().enumerate() {
+        let player_name = yaml.sanitized_name();
+        let original_file_name = format!("{player_name}.yaml");
+
+        writer.start_file(format!("{}_{}", index, original_file_name), options)?;
         writer.write_all(yaml.current_content().as_bytes())?;
     }
 

@@ -52,7 +52,7 @@ function createTrackerTable(tableId)
 {
     const statusFormatter = function (cell, formatterParams) {
         const value = cell.getValue();
-        return `<div class="slot-status slot-status-${value}"></span>`;
+        return `<div class="slot-status slot-status-${value.replace(/\s/g, "")}"></span>`;
     }
 
     const checksFormatter = function (cell, formatterParams) {
@@ -93,19 +93,35 @@ function createTrackerTable(tableId)
 
     const lastActivityFormatter = function (cell, formatterParams) {
         const value = cell.getValue();
+        const row = cell.getRow();
+        const goaled = row.getData().status === "Goal Completed";
+
         if (value === null)
         {
             return "Never";
         }
         let timeSinceClassname = "last-active-recent";
-        if (value >= 3600) {
-            timeSinceClassname = "last-active-hardbk";
-        } else if (value >= 1800) {
-            timeSinceClassname = "last-active-softbk";
+        if (!goaled) {
+            if (value >= 3600) {
+                timeSinceClassname = "last-active-hardbk";
+            } else if (value >= 1800) {
+                timeSinceClassname = "last-active-softbk";
+            }
         }
         
         const text = timeSince(value) + " ago"
         return `<div class="${timeSinceClassname}">${text}</div>`;
+    }
+
+    const lastActivitySorter = function (a, b, aRow, bRow) {
+        const aGoaled = aRow.getData().status === "Goal Completed";
+        const bGoaled = bRow.getData().status === "Goal Completed";
+
+        if (aGoaled !== bGoaled) {
+            return aGoaled ? 1 : -1;
+        }
+
+        return a - b;
     }
 
     const onDiscordHandleClick = function (event, cell) {
@@ -172,14 +188,16 @@ function createTrackerTable(tableId)
                 }
             }
         ],
+        initialSort: [
+            { column: "Name", dir:"asc" }
+        ],
         columns: [
-            { title: "Id", field: "id" },
             { title: "S", field: "status", hozAlign: "center", formatter: statusFormatter },
             { title: "Name", field: "name", headerFilter: "input" },
             { title: "Game", field: "game", headerFilter:"list", headerFilterParams: { valuesLookup:true, clearable:true, sort: "asc" } },
             { title: "Checks", field: "checks", formatter: checksFormatter, sorter: checksSorter, bottomCalc: checksCalc, bottomCalcFormatter: checksCalcFormatter},
             { title: "Percent", field: "checks", formatter: checksPercentFormatter, sorter: checksPercentSorter, bottomCalc: checksCalc, bottomCalcFormatter: checksPercentFormatter },
-            { title: "Last Active", field: "last_activity", formatter: lastActivityFormatter },
+            { title: "Last Active", field: "last_activity", formatter: lastActivityFormatter, sorter: lastActivitySorter },
             { title: "Discord Handle", field: "discord_handle", cellClick: onDiscordHandleClick, headerFilter: "input" }
         ]
     });
