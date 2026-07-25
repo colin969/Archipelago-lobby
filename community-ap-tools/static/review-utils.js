@@ -94,7 +94,7 @@ function createTrackerTable(tableId)
     const lastActivityFormatter = function (cell, formatterParams) {
         const value = cell.getValue();
         const row = cell.getRow();
-        const goaled = row.getData().status === "Goal Completed";
+        const goaled = row.getData().status === "GoalCompleted";
 
         if (value === null)
         {
@@ -114,8 +114,8 @@ function createTrackerTable(tableId)
     }
 
     const lastActivitySorter = function (a, b, aRow, bRow) {
-        const aGoaled = aRow.getData().status === "Goal Completed";
-        const bGoaled = bRow.getData().status === "Goal Completed";
+        const aGoaled = aRow.getData().status === "GoalCompleted";
+        const bGoaled = bRow.getData().status === "GoalCompleted";
 
         if (aGoaled !== bGoaled) {
             return aGoaled ? 1 : -1;
@@ -203,11 +203,15 @@ function createTrackerTable(tableId)
             { title: "S", field: "status", hozAlign: "center", formatter: statusFormatter },
             { title: "Name", field: "name", headerFilter: "input" },
             { title: "Game", field: "game", headerFilter:"list", headerFilterParams: { valuesLookup:true, clearable:true, sort: "asc" } },
-            { title: "Checks", minWidth: 150, field: "checks", formatter: checksFormatter, sorter: checksSorter, bottomCalc: checksCalc, bottomCalcFormatter: checksCalcFormatter},
-            { title: "Percent", field: "checks", formatter: checksPercentFormatter, sorter: checksPercentSorter, bottomCalc: checksCalc, bottomCalcFormatter: checksPercentFormatter },
+            { title: "Checks", field: "checks", formatter: checksFormatter, sorter: checksSorter, bottomCalc: checksCalc, bottomCalcFormatter: checksCalcFormatter},
+            { title: "Percent", field: "percent", mutator: function (value, data) {
+                return data.checks;
+            }, formatter: checksPercentFormatter, sorter: checksPercentSorter, bottomCalc: checksCalc, bottomCalcFormatter: checksPercentFormatter },
             { title: "Last Active", field: "last_activity", formatter: lastActivityFormatter, sorter: lastActivitySorter },
             { title: "Discord Handle", field: "discord_handle", cellClick: onDiscordHandleClick, headerFilter: "input" },
-            { title: "Death Block", field: "deathlink_excluded", hozAlign: "center", formatter: "tickCross" },
+            { title: "Deaths Allowed", field: "death_allowed", mutator: function (value, data) {
+                return !data.deathlink_excluded;
+            }, hozAlign: "center", formatter: "tickCross" },
             { title: "Deaths", field: "deathlinks_sent", bottomCalc: "sum" },
         ]
     });
@@ -231,7 +235,7 @@ function createTrackerTable(tableId)
 
 function forceReviewTableRefresh() {
     if (window.review_table) {
-        window.table.replaceData("/api/tracker_info");
+        window.review_table.replaceData("/api/tracker_info");
     }
 }
 

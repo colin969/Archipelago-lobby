@@ -278,8 +278,8 @@ async fn deathlinks(
 #[rocket::post("/api/bounce_exclusions/<slot_name>/<tag_name>")]
 async fn proxy_add_exclusion(
     _session: LoggedInSession,
-    slot_name: String,
-    tag_name: String,
+    slot_name: &str,
+    tag_name: &str,
     config: &State<Config>,
     cache: &State<TrackerInfoCache>,
 ) -> crate::error::Result<rocket::http::Status> {
@@ -294,11 +294,12 @@ async fn proxy_add_exclusion(
 
     let client = reqwest::Client::new();
     let encoded_slot = urlencoding::encode(&slot_name);
+    let url = format!(
+        "{}api/bounce_exclusions/{}/{}",
+        apx_api_root, encoded_slot, tag_name
+    );
     let response = client
-        .post(format!(
-            "{}/api/deathlink_exclusions/{}/{}",
-            apx_api_root, encoded_slot, tag_name
-        ))
+        .post(url)
         .header("X-API-Key", apx_api_key)
         .send()
         .await?;
@@ -313,8 +314,8 @@ async fn proxy_add_exclusion(
 #[rocket::delete("/api/bounce_exclusions/<slot_name>/<tag_name>")]
 async fn proxy_remove_exclusion(
     _session: LoggedInSession,
-    slot_name: String,
-    tag_name: String,
+    slot_name: &str,
+    tag_name: &str,
     config: &State<Config>,
     cache: &State<TrackerInfoCache>,
 ) -> crate::error::Result<rocket::http::Status> {
@@ -331,7 +332,7 @@ async fn proxy_remove_exclusion(
     let encoded_slot = urlencoding::encode(&slot_name);
     let response = client
         .delete(format!(
-            "{}/api/deathlink_exclusions/{}/{}",
+            "{}api/bounce_exclusions/{}/{}",
             apx_api_root, encoded_slot, tag_name
         ))
         .header("X-API-Key", apx_api_key)

@@ -14,6 +14,11 @@ body {
     background-color: rgb(25, 25, 25);
 }
 
+#popup {
+    color: white;
+    background-color: rgb(25, 25, 25);
+}
+
 table, tr, td {
     border: 1px solid white;
     border-collapse: collapse;
@@ -94,6 +99,14 @@ td {
 .tabulator-footer {
     color: white !important;
 }
+
+.tabulator-menu {
+    background: rgb(35,35,35) !important;
+}
+
+.tabulator-menu-item:hover {
+    background: rgb(80, 80, 80) !important;
+}
         </style>
     </head>
     <body id="main">
@@ -146,10 +159,11 @@ td {
             const popup = getPopup();
 
             const confirmationText = document.createElement("div");
-            const action = isBlocked ? "Remove" : "Add"
-            confirmationText.innerText = action + " deathlink block on " + slotName + " playing " + slotGame + ". Are you sure?";
+            const action = isBlocked ? "Allow Deaths from " : "Block Deaths from "
+            confirmationText.innerText = action + slotName + " playing " + slotGame + ". Are you sure?";
 
-            const buttonContainer = document.createElement("div")
+            const buttonContainer = document.createElement("div");
+            buttonContainer.className = "button-row";
 
             const yesButton = document.createElement("button")
             yesButton.innerText = "Yes"
@@ -163,7 +177,6 @@ td {
                     alert("Failed to toggle - " + response.statusText);
                     popup.remove();
                 }
-                location.href = location.href.split("#")[0] + "/release/" + encodeURIComponent(slotName);
             })
 
             const noButton = document.createElement("button")
