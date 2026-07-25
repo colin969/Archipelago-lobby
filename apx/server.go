@@ -178,7 +178,10 @@ func (h apxHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s apxServer) serveConn(w http.ResponseWriter, r *http.Request, reduced bool) {
-	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{})
+	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		// Adds about 32mb memory usage per 1k connections, debatble CPU usage
+		CompressionMode: websocket.CompressionContextTakeover,
+	})
 	if err != nil {
 		s.logf("%v", err)
 		return
