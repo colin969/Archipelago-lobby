@@ -43,7 +43,7 @@ pub struct RoomStatus {
     pub tracker: String,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Clone, Debug)]
 pub struct MergedSlotInfo {
     pub id: usize,
     pub name: String,
@@ -56,6 +56,8 @@ pub struct MergedSlotInfo {
     pub discord_id: i64,
     pub has_patch: bool,
     pub password: Option<String>,
+    pub deathlinks_sent: i64,
+    pub deathlink_excluded: bool,
 }
 
 pub struct ApRoom {

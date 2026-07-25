@@ -1,4 +1,6 @@
 use std::{collections::HashMap, str::FromStr};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, anyhow};
 use askama::Template;
@@ -31,6 +33,8 @@ mod schema;
 
 use diesel_migrations::{EmbeddedMigrations, embed_migrations};
 
+use crate::guards::MergedSlotInfo;
+
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
 pub const STATIC_VERSION: &str = std::env!("STATIC_VERSION");
@@ -55,17 +59,8 @@ pub struct Deathlink {
     pub created_at: String,
 }
 
-#[derive(Debug, Clone)]
-pub struct SlotDeathCount {
-    pub slot: usize,
-    pub name: String,
-    pub count: usize,
-}
-
-#[derive(Deserialize)]
-struct ExclusionsResponse {
-    excluded_slots: Vec<usize>,
-}
+#[derive(Deserialize, Debug)]
+struct ExclusionsResponse(HashMap<String, Vec<String>>);
 
 #[derive(Deserialize, Serialize)]
 struct ProbabilityResponse {
@@ -83,6 +78,7 @@ pub struct DeathlinksSlot {
     pub game: String,
     pub discord_handle: String,
     pub is_excluded: bool,
+    pub count: i64,
 }
 
 #[derive(Template, WebTemplate)]
@@ -92,8 +88,7 @@ pub struct DeathlinksIndexTpl {
     lobby_root_url: String,
     is_session_valid: bool,
     slots: Vec<DeathlinksSlot>,
-    deathlinks: Vec<Deathlink>,
-    deaths_by_slot: Vec<SlotDeathCount>,
+    total_deaths: i64,
 }
 
 #[catch(401)]
@@ -199,7 +194,7 @@ async fn root(
     root_run(session, lobby_room, ap_room, slot_passwords, config).await
 }
 
-async fn fetch_deathlinks(config: &Config, room_id: &str) -> crate::error::Result<Vec<Deathlink>> {
+async fn fetch_deathlinks(config: &Config, room_id: &str) -> crate::error::Result<HashMap<String, i64>> {
     let apx_api_root = config
         .apx_api_root
         .as_ref()
@@ -219,7 +214,7 @@ async fn fetch_deathlinks(config: &Config, room_id: &str) -> crate::error::Resul
     Ok(response.json().await?)
 }
 
-async fn fetch_exclusions(config: &Config) -> crate::error::Result<Vec<usize>> {
+async fn fetch_exclusions(config: &Config) -> crate::error::Result<HashMap<String, Vec<String>>> {
     let apx_api_root = config
         .apx_api_root
         .as_ref()
@@ -231,13 +226,13 @@ async fn fetch_exclusions(config: &Config) -> crate::error::Result<Vec<usize>> {
 
     let client = reqwest::Client::new();
     let response = client
-        .get(format!("{}/api/deathlink_exclusions", apx_api_root))
+        .get(format!("{}/api/bounce_exclusions", apx_api_root))
         .header("X-API-Key", apx_api_key)
         .send()
         .await?;
 
     let data: ExclusionsResponse = response.json().await?;
-    Ok(data.excluded_slots)
+    Ok(data.0)
 }
 
 #[rocket::get("/deathlinks")]
@@ -252,6 +247,7 @@ async fn deathlinks(
     let deathlinks = fetch_deathlinks(config, &room_id).await.unwrap_or_default();
     let excluded_slots = fetch_exclusions(config).await.unwrap_or_default();
 
+    let deathlink_tag = String::from("DeathLink");
     let slots: Vec<DeathlinksSlot> = ap_room
         .tracker_info
         .slots
@@ -262,39 +258,30 @@ async fn deathlinks(
             name: slot.name.clone(),
             game: slot.game.clone(),
             discord_handle: lobby_slot.discord_handle.clone(),
-            is_excluded: excluded_slots.contains(&slot.id),
+            // Definitely a cleaner way of doing this
+            is_excluded: excluded_slots.get(&slot.name).map_or(false, |slots| slots.contains(&deathlink_tag)),
+            count: *deathlinks.get(&slot.name).unwrap_or(&0),
         })
         .collect();
 
-    let slot_names: HashMap<usize, &str> = slots.iter().map(|s| (s.id, s.name.as_str())).collect();
-    let mut deaths_by_slot: Vec<SlotDeathCount> = deathlinks
-        .iter()
-        .map(|dl| dl.slot)
-        .counts()
-        .into_iter()
-        .map(|(slot, count)| SlotDeathCount {
-            slot,
-            name: slot_names[&slot].to_string(),
-            count,
-        })
-        .collect();
-    deaths_by_slot.sort_by(|a, b| b.count.cmp(&a.count));
+    let total_deaths = deathlinks.values().sum();
 
     Ok(DeathlinksIndexTpl {
         lobby_room,
         lobby_root_url: config.lobby_root_url.to_string(),
         is_session_valid: config.is_session_valid,
         slots,
-        deathlinks,
-        deaths_by_slot,
+        total_deaths,
     })
 }
 
-#[rocket::post("/api/deathlink_exclusions/<slot>")]
+#[rocket::post("/api/bounce_exclusions/<slot_name>/<tag_name>")]
 async fn proxy_add_exclusion(
     _session: LoggedInSession,
-    slot: u32,
+    slot_name: String,
+    tag_name: String,
     config: &State<Config>,
+    cache: &State<TrackerInfoCache>,
 ) -> crate::error::Result<rocket::http::Status> {
     let apx_api_root = config
         .apx_api_root
@@ -306,24 +293,30 @@ async fn proxy_add_exclusion(
         .ok_or_else(|| anyhow!("APX API key not configured"))?;
 
     let client = reqwest::Client::new();
+    let encoded_slot = urlencoding::encode(&slot_name);
     let response = client
         .post(format!(
-            "{}/api/deathlink_exclusions/{}",
-            apx_api_root, slot
+            "{}/api/deathlink_exclusions/{}/{}",
+            apx_api_root, encoded_slot, tag_name
         ))
         .header("X-API-Key", apx_api_key)
         .send()
         .await?;
+
+    // Invalidate tracker info cache
+    *cache.0.lock().unwrap() = None;
 
     Ok(rocket::http::Status::from_code(response.status().as_u16())
         .unwrap_or(rocket::http::Status::InternalServerError))
 }
 
-#[rocket::delete("/api/deathlink_exclusions/<slot>")]
+#[rocket::delete("/api/bounce_exclusions/<slot_name>/<tag_name>")]
 async fn proxy_remove_exclusion(
     _session: LoggedInSession,
-    slot: u32,
+    slot_name: String,
+    tag_name: String,
     config: &State<Config>,
+    cache: &State<TrackerInfoCache>,
 ) -> crate::error::Result<rocket::http::Status> {
     let apx_api_root = config
         .apx_api_root
@@ -335,14 +328,18 @@ async fn proxy_remove_exclusion(
         .ok_or_else(|| anyhow!("APX API key not configured"))?;
 
     let client = reqwest::Client::new();
+    let encoded_slot = urlencoding::encode(&slot_name);
     let response = client
         .delete(format!(
-            "{}/api/deathlink_exclusions/{}",
-            apx_api_root, slot
+            "{}/api/deathlink_exclusions/{}/{}",
+            apx_api_root, encoded_slot, tag_name
         ))
         .header("X-API-Key", apx_api_key)
         .send()
         .await?;
+
+    // Invalidate tracker info cache
+    *cache.0.lock().unwrap() = None;
 
     Ok(rocket::http::Status::from_code(response.status().as_u16())
         .unwrap_or(rocket::http::Status::InternalServerError))
@@ -712,6 +709,38 @@ struct SetPasswordRequest {
     password: Option<String>,
 }
 
+#[rocket::post("/gen_all_passwords")]
+async fn gen_all_passwords(
+    _session: LoggedInSession,
+    config: &State<Config>,
+) -> crate::error::Result<()> {
+    let client = reqwest::Client::new();
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        HeaderName::from_static("x-api-key"),
+        HeaderValue::from_str(&config.lobby_api_key)?,
+    );
+
+    let url = config.lobby_root_url.join(&format!(
+        "/api/room/{}/gen_all_passwords",
+        config.lobby_room_id
+    ))?;
+
+    let response = client
+        .post(url)
+        .headers(headers)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        Err(anyhow!("Failed to gen passwords: {}", response.status()))?;
+    }
+
+    notify_proxy_password_refresh(config).await;
+
+    Ok(())
+}
+
 #[rocket::post("/set_password/<yaml_id>", data = "<request>")]
 async fn set_password(
     _session: LoggedInSession,
@@ -815,6 +844,10 @@ pub struct Config {
     pub apx_api_key: Option<String>,
 }
 
+pub struct TrackerInfoCache(pub Arc<Mutex<Option<(Instant, Vec<MergedSlotInfo>)>>>);
+
+const TRACKER_CACHE_TTL: Duration = Duration::from_secs(20);
+
 #[rocket::main]
 async fn main() -> crate::error::Result<()> {
     let _ = dotenvy::dotenv().ok();
@@ -892,6 +925,7 @@ async fn main() -> crate::error::Result<()> {
                 autocompletion,
                 give,
                 set_password,
+                gen_all_passwords,
                 change_yaml_owner,
                 get_deferred_datapackage_games,
                 add_deferred_datapackage_game,
@@ -907,6 +941,7 @@ async fn main() -> crate::error::Result<()> {
         .manage(rocket::Config::figment())
         .manage(config)
         .manage(db_pool)
+        .manage(TrackerInfoCache(Arc::new(Mutex::new(None))))
         .attach(OAuth2::<Discord>::fairing("discord"))
         .launch()
         .await

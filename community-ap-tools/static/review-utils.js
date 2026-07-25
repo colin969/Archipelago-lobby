@@ -135,6 +135,7 @@ function createTrackerTable(tableId)
         ajaxURL: "/api/tracker_info",
         height: "100%",
         layout: "fitDataStretch",
+        persistence: true,
         rowContextMenu: [
             {
                 label: "Password",
@@ -153,7 +154,14 @@ function createTrackerTable(tableId)
                 }
             },
             {
-                label: "Release Slot",
+                label: "Toggle DeathBlock",
+                action: function (event, row) {
+                    const { name, game, deathlink_excluded } = row.getData();
+                    openDeathBlock(name, game, deathlink_excluded);
+                }
+            },
+            {
+                label: "Goal Slot",
                 action: function (event, row) {
                     const { name, game } = row.getData();
                     openRelease(name, game);
@@ -195,10 +203,12 @@ function createTrackerTable(tableId)
             { title: "S", field: "status", hozAlign: "center", formatter: statusFormatter },
             { title: "Name", field: "name", headerFilter: "input" },
             { title: "Game", field: "game", headerFilter:"list", headerFilterParams: { valuesLookup:true, clearable:true, sort: "asc" } },
-            { title: "Checks", field: "checks", formatter: checksFormatter, sorter: checksSorter, bottomCalc: checksCalc, bottomCalcFormatter: checksCalcFormatter},
+            { title: "Checks", minWidth: 150, field: "checks", formatter: checksFormatter, sorter: checksSorter, bottomCalc: checksCalc, bottomCalcFormatter: checksCalcFormatter},
             { title: "Percent", field: "checks", formatter: checksPercentFormatter, sorter: checksPercentSorter, bottomCalc: checksCalc, bottomCalcFormatter: checksPercentFormatter },
             { title: "Last Active", field: "last_activity", formatter: lastActivityFormatter, sorter: lastActivitySorter },
-            { title: "Discord Handle", field: "discord_handle", cellClick: onDiscordHandleClick, headerFilter: "input" }
+            { title: "Discord Handle", field: "discord_handle", cellClick: onDiscordHandleClick, headerFilter: "input" },
+            { title: "Death Block", field: "deathlink_excluded", hozAlign: "center", formatter: "tickCross" },
+            { title: "Deaths", field: "deathlinks_sent", bottomCalc: "sum" },
         ]
     });
 
@@ -212,9 +222,17 @@ function createTrackerTable(tableId)
         }
     });
 
+    window.review_table = table;
+
     setInterval(() => {
         table.replaceData("/api/tracker_info");
-    }, 60000);
+    }, 30000);
+}
+
+function forceReviewTableRefresh() {
+    if (window.review_table) {
+        window.table.replaceData("/api/tracker_info");
+    }
 }
 
 function refreshSlotsToPing() {

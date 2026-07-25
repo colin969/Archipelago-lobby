@@ -49,6 +49,8 @@ button {
             </tr>
         </table>
 
+        <h2>Deathlinks Sent: {{ total_deaths }}</h2>
+
         <h2>Deathlink Probability</h2>
         <div id="probability-section">
             <label for="probability-input">Probability (0-100%):</label>
@@ -65,6 +67,7 @@ button {
                     <th>Player</th>
                     <th>Game</th>
                     <th>Discord</th>
+                    <th>Deathlinks Sent</th>
                     <th>Status</th>
                     <th>Action</th>
                 </tr>
@@ -76,46 +79,11 @@ button {
                     <td>{{ slot.name }}</td>
                     <td>{{ slot.game }}</td>
                     <td>@{{ slot.discord_handle }}</td>
+                    <td>{{ slot.count }}</td>
                     <td class="deathlink-status">{% if slot.is_excluded %}Disabled{% else %}Enabled{% endif %}</td>
                     <td>
-                        <button class="toggle-deathlink" data-slot-id="{{ slot.id }}">Toggle</button>
+                        <button class="toggle-deathlink" data-slot-name="{{ slot.name }}">Toggle</button>
                     </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-
-        <h2>Deathlink Statistics</h2>
-        <div id="deathlink-stats">
-            {% if deathlinks.is_empty() %}
-            <p>No deathlinks recorded yet.</p>
-            {% else %}
-            <p>Total deathlinks: {{ deathlinks.len() }}</p>
-            <p>Deaths by slot:</p>
-            <ul>
-                {% for slot_count in deaths_by_slot %}
-                <li>Slot {{ slot_count.slot }} ({{ slot_count.name }}): {{ slot_count.count }} deaths</li>
-                {% endfor %}
-            </ul>
-            {% endif %}
-        </div>
-
-        <table id="deathlink-history-table">
-            <thead>
-                <tr>
-                    <th>Time</th>
-                    <th>Slot</th>
-                    <th>Source</th>
-                    <th>Cause</th>
-                </tr>
-            </thead>
-            <tbody id="deathlink-history-body">
-                {% for dl in deathlinks %}
-                <tr>
-                    <td>{{ dl.created_at }}</td>
-                    <td>{{ dl.slot }}</td>
-                    <td>{{ dl.source }}</td>
-                    <td>{{ dl.cause.as_deref().unwrap_or("N/A") }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -125,13 +93,17 @@ button {
     <script>
         document.querySelectorAll('.toggle-deathlink').forEach(button => {
             button.addEventListener('click', async () => {
-                const slotId = parseInt(button.dataset.slotId);
+                const slotName = button.dataset.slotName;
                 const row = button.closest('tr');
                 const statusCell = row.querySelector('.deathlink-status');
                 const isExcluded = statusCell.innerText === 'Disabled';
                 const method = isExcluded ? 'DELETE' : 'POST';
-                await fetch('/api/deathlink_exclusions/' + slotId, { method });
-                statusCell.innerText = isExcluded ? 'Enabled' : 'Disabled';
+                const response = await fetch('/api/bounce_exclusions/' + encodeURIComponent(slotName) + '/DeathLink', { method });
+                if (response.ok) {
+                    statusCell.innerText = isExcluded ? 'Enabled' : 'Disabled';
+                } else {
+                    alert("Failed to toggle - " + response.statusText);
+                }
             });
         });
 

@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use anyhow::anyhow;
 use diesel_async::AsyncPgConnection;
 use diesel_async::pooled_connection::deadpool::Pool as DieselPool;
@@ -6,7 +8,7 @@ use rocket::{State, routes, serde::json::Json};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::Config;
+use crate::{Config, TRACKER_CACHE_TTL, TrackerInfoCache, fetch_deathlinks, fetch_exclusions};
 use crate::auth::{AdminSession, LoggedInSession};
 use crate::error;
 use crate::guards::{ApRoom, LobbyRoom, SlotPasswords, MergedSlotInfo};
@@ -421,12 +423,29 @@ async fn get_tracker_info(
     ap_room: ApRoom,
     lobby_room: LobbyRoom,
     slot_passwords: SlotPasswords,
+    config: &State<Config>,
+    cache: &State<TrackerInfoCache>,
 ) -> crate::error::Result<Json<Vec<MergedSlotInfo>>> {
+    // Check cache first
+    {
+        let lock = cache.0.lock().unwrap();
+        if let Some((cached_at, ref data)) = *lock {
+            if cached_at.elapsed() < TRACKER_CACHE_TTL {
+                return Ok(Json(data.clone()));
+            }
+        }
+    }
+
     if lobby_room.yamls.len() != ap_room.tracker_info.slots.len() {
         return Err(error::internal_server_error("The AP room slot number doesn't match the lobby, this won't work"));
     }
 
-    let slots = ap_room
+    let room_id = lobby_room.id.to_string();
+    let deathlinks = fetch_deathlinks(config, &room_id).await.unwrap_or_default();
+    let exclusions = fetch_exclusions(config).await.unwrap_or_default();
+    let deathlink_tag = String::from("DeathLink");
+
+    let slots: Vec<MergedSlotInfo> = ap_room
         .tracker_info
         .slots
         .into_iter()
@@ -435,6 +454,9 @@ async fn get_tracker_info(
             let password = slot_passwords.0[slot.id - 1].password.clone();
 
             MergedSlotInfo {
+                // It's moved for `name:` later, feels stupid but it works to put this line higher
+                deathlinks_sent: *deathlinks.get(&slot.name).unwrap_or(&0),
+                deathlink_excluded: exclusions.get(&slot.name).map_or(false, |slots| slots.contains(&deathlink_tag)),
                 id: slot.id,
                 name: slot.name,
                 game: slot.game,
@@ -449,6 +471,10 @@ async fn get_tracker_info(
             }
         })
         .collect();
+
+
+    // Save to cache
+    *cache.0.lock().unwrap() = Some((Instant::now(), slots.clone()));
 
     Ok(Json(slots))
 }

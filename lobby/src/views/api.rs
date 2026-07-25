@@ -12,6 +12,10 @@ use rocket::{
 };
 use serde::{Deserialize, Serialize};
 
+extern crate rand;
+
+use rand::distr::{Alphanumeric, SampleString};
+
 use crate::{
     db::{self, BundleId, Json as DbJson, RoomId, Yaml, YamlId},
     error::{ApiError, ApiResult, WithContext, WithStatus},
@@ -295,6 +299,31 @@ pub(crate) async fn slots_passwords(
     result.sort_by_key(|info| info.slot_number);
 
     Ok(Json(result))
+}
+
+#[post("/room/<room_id>/gen_all_passwords")]
+#[tracing::instrument(skip(_session, ctx))]
+pub(crate) async fn gen_all_passwords(
+    _session: AdminSession,
+    room_id: RoomId,
+    ctx: &State<Context>,
+) -> ApiResult<()> {
+    let mut conn = ctx.db_pool.get().await?;
+
+    let yamls = db::get_yamls_for_room(room_id, &mut conn)
+        .await
+        .context("Couldn't find this room")
+        .status(Status::NotFound)?;
+
+    for yaml in yamls {
+        if yaml.password.is_none() {
+            let password = Alphanumeric.sample_string(&mut rand::rng(), 6);
+
+            db::update_yaml_password(yaml.id, Some(password), &mut conn).await?;
+        }
+    }
+
+    Ok(())
 }
 
 #[post("/room/<room_id>/set_password/<yaml_id>", data = "<request>")]
@@ -738,6 +767,7 @@ pub fn routes() -> Vec<rocket::Route> {
         refresh_patches,
         slots_passwords,
         set_password,
+        gen_all_passwords,
         list_games,
         game_options,
         edit_yaml,

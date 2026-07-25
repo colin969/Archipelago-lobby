@@ -57,6 +57,7 @@ rocket_ws = "=0.1.0"
 deadpool-redis = "0.23.0"
 redis = "1.0.5"
 indexmap = { version = "2.12.1", features = ["serde"] }
+rand = { version = "0.10.2", features = ["thread_rng"] }
 
 [build-dependencies]
 anyhow = "1.0.86"

@@ -7,6 +7,9 @@ import shutil
 import uuid
 import zipfile
 
+# Uploads an existing zipped gen to an existing ap lobby, ties patches to the correct slots
+# Heavily advised for the room to be closed first
+
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 DC = os.path.join(SCRIPT_DIR, "dc.sh")
 

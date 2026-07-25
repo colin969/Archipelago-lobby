@@ -146,3 +146,9 @@ Both `apdiff-viewer/docker-compose.yml` and the bind-mount dirs (`pgdata/`, `blo
 
 When working on the `ap-worker`, if you change the python dependencies, you
 have to rerun `docker compose build` and restart everything.
+
+# APX
+
+APX acts as a proxy service sitting between the Archipelago server and clients.
+
+See /apx/README.md for more info

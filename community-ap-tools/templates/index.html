@@ -106,6 +106,7 @@ td {
             <div class="button-row">
                 <a href="{{ lobby_root_url}}room/{{lobby_room.id}}"><button>Ionium Lobby</button></a>
                 <a href="/deathlinks"><button>Deathlink Settings</button></a>
+                <button onclick="genAllPasswords()">Generate Passwords</button>
             </div>
 
             <div class="review-table-wrapper">
@@ -141,11 +142,46 @@ td {
             navigator.clipboard.writeText(message);
         }
 
+        function openDeathBlock(slotName, slotGame, isBlocked) {
+            const popup = getPopup();
+
+            const confirmationText = document.createElement("div");
+            const action = isBlocked ? "Remove" : "Add"
+            confirmationText.innerText = action + " deathlink block on " + slotName + " playing " + slotGame + ". Are you sure?";
+
+            const buttonContainer = document.createElement("div")
+
+            const yesButton = document.createElement("button")
+            yesButton.innerText = "Yes"
+            yesButton.addEventListener("click", async () => {
+                const method = isBlocked ? 'DELETE' : 'POST';
+                const response = await fetch('/api/bounce_exclusions/' + encodeURIComponent(slotName) + '/DeathLink', { method });
+                if (response.ok) {
+                    forceReviewTableRefresh();
+                    popup.remove();
+                } else {
+                    alert("Failed to toggle - " + response.statusText);
+                    popup.remove();
+                }
+                location.href = location.href.split("#")[0] + "/release/" + encodeURIComponent(slotName);
+            })
+
+            const noButton = document.createElement("button")
+            noButton.innerText = "No"
+            noButton.addEventListener("click", () => popup.remove())
+
+            buttonContainer.appendChild(yesButton)
+            buttonContainer.appendChild(noButton)
+
+            popup.appendChild(confirmationText)
+            popup.appendChild(buttonContainer)
+        }
+
         function openRelease(slotName, slotGame) {
             const popup = getPopup();
 
             const confirmationText = document.createElement("div")
-            confirmationText.innerText = "You're about to release the slot " + slotName + " playing " + slotGame + ". Please type the slot name in the following field to confirm."
+            confirmationText.innerText = "You're about to goal the slot " + slotName + " playing " + slotGame + ". Please type the slot name in the following field to confirm."
 
             const confirmationForm = document.createElement("form")
             confirmationForm.action = "javascript:void(0);"
@@ -254,6 +290,46 @@ td {
             popup.appendChild(generateButton)
             popup.appendChild(removeButton)
         }
+
+        function genAllPasswords() {
+            const popup = getPopup()
+
+            const title = document.createElement("div")
+            title.innerText = "Generate passwords for all slots that don't have one?"
+            title.style.marginBottom = "10px"
+
+            const buttonRow = document.createElement("div")
+            buttonRow.style.display = "flex"
+            buttonRow.style.gap = "0.5rem"
+
+            const confirmButton = document.createElement("button")
+            confirmButton.innerText = "Generate"
+            confirmButton.addEventListener("click", () => {
+                popup.close()
+                const url = new URL("/gen_all_passwords", document.location)
+                fetch(url, { method: "POST" })
+                    .then((response) => {
+                        if (response.ok) {
+                            location.reload()
+                        } else {
+                            alert("Failed to generate passwords")
+                        }
+                    })
+                    .catch((error) => {
+                        alert("Error: " + error)
+                    })
+            })
+
+            const cancelButton = document.createElement("button")
+            cancelButton.innerText = "Cancel"
+            cancelButton.addEventListener("click", () => popup.close())
+
+            buttonRow.appendChild(confirmButton)
+            buttonRow.appendChild(cancelButton)
+            popup.appendChild(title)
+            popup.appendChild(buttonRow)
+        }
+
 
         function generatePassword() {
             const length = 6

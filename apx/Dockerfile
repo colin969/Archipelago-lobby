@@ -1,33 +1,21 @@
-FROM rust:1.92-slim-trixie AS builder
-
-RUN apt update && \
-    apt install -y libssl-dev pkg-config && \
-    rm -rf /var/lib/{apt,dpkg,cache,log}/
+FROM golang:1.26-trixie AS builder
 
 WORKDIR /app
 
-COPY Cargo.toml Cargo.lock ./
-COPY apx/Cargo.toml ./apx/
+COPY ./apx/go.mod ./apx/go.sum ./
+RUN go mod download
 
-COPY ./apx ./
+COPY ./apx .
+RUN CGO_ENABLED=0 GOOS=linux go build -o server .
 
-# Cache deps
-RUN mkdir -p apx/src && echo "fn main() {}" > apx/src/main.rs && \
-    cargo build --release -p apx && \
-    rm -rf apx/src
+FROM alpine:3.21
 
-COPY apx/src ./apx/src
-
-RUN cargo build --release
-
-FROM debian:13-slim
-
-RUN apt update && \
-    apt install -y ca-certificates openssl && \
-    rm -rf /var/lib/{apt,dpkg,cache,log}/
+RUN apk --no-cache add ca-certificates tzdata
 
 WORKDIR /app
 
-COPY --from=builder /app/target/release/apx ./
+COPY --from=builder /app/server .
 
-CMD ["/app/apx"]
+USER nobody
+
+ENTRYPOINT ["./server"]
