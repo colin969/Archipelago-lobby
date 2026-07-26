@@ -149,6 +149,7 @@ services:
     ports:
       - "127.0.0.1:9888:9888"
     volumes:
+      - app_volume:/app
       - ./config.yaml:/app/config.yaml:ro
 
   apx:
@@ -199,3 +200,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+volumes:
+  app_volume:
