@@ -714,6 +714,7 @@ struct SetPasswordRequest {
 async fn gen_all_passwords(
     _session: LoggedInSession,
     config: &State<Config>,
+    cache: &State<TrackerInfoCache>,
 ) -> crate::error::Result<()> {
     let client = reqwest::Client::new();
     let mut headers = HeaderMap::new();
@@ -739,6 +740,9 @@ async fn gen_all_passwords(
 
     notify_proxy_password_refresh(config).await;
 
+    // Invalidate tracker info cache
+    *cache.0.lock().unwrap() = None;
+
     Ok(())
 }
 
@@ -748,6 +752,7 @@ async fn set_password(
     yaml_id: &str,
     request: Json<SetPasswordRequest>,
     config: &State<Config>,
+    cache: &State<TrackerInfoCache>,
 ) -> crate::error::Result<()> {
     let client = reqwest::Client::new();
     let mut headers = HeaderMap::new();
@@ -774,6 +779,9 @@ async fn set_password(
 
     notify_proxy_password_refresh(config).await;
 
+    // Invalidate tracker info cache
+    *cache.0.lock().unwrap() = None;
+
     Ok(())
 }
 
@@ -798,6 +806,7 @@ async fn change_yaml_owner(
     yaml_id: &str,
     request: Json<ChangeYamlOwnerRequest>,
     config: &State<Config>,
+    cache: &State<TrackerInfoCache>,
 ) -> crate::error::Result<()> {
     let client = reqwest::Client::new();
     let mut headers = HeaderMap::new();
@@ -826,6 +835,9 @@ async fn change_yaml_owner(
     }
 
     notify_proxy_password_refresh(config).await;
+
+    // Invalidate tracker info cache
+    *cache.0.lock().unwrap() = None;
 
     Ok(())
 }
