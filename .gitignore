@@ -12,3 +12,4 @@ __pycache__/
 /apdiff-viewer/pgdata
 /apdiff-viewer/blobs
 .vscode
+start-community-ap-tools-dev.sh

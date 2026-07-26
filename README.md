@@ -1,34 +1,101 @@
-Archipelago lobby
+Archipelago lobby (Community AP Fork)
 =================
 
 This project provides a lobby to collect yaml files from players to be able to
 host archipelagoes easily.
 
+This also contains 
+ - APX, a proxy server for improving Archipelago Server capabilities and perf
+ - Community AP Tools, a frontend for collaborative reviews of lobby yamls, and realtime management of the Archipelago Server
+
 # Running this project
 
+## Setup
+Clone with submodules
+`git clone --recurse-submodules 
+
+Make a copy of the docker compose template, and edit the environmental variables for keys / security, then build the docker images. Building may take a while.
+Please see [Required Secrets](#required-secrets)
 ```
 cp docker-compose.yml.example docker-compose.yml
+touch .env.community
 docker compose build
-./start.sh
 ```
 
-The first start will require you to create a Discord application for OAuth2 (see [Discord OAuth](#discord-oauth) below); `start.sh` will prompt you and write `Rocket.toml` for you.
+The start scripts below are produced for easy setup. You should ideally be more familair with how to stop and start services individually with docker compose.
+
+**It is heavily recommended to restrict how many ports are exposed. In production you should only really need the lobby, community ap tools, and apx websocket servers exposed publicly. You are responsible for properly isolating services.**
+
+## Lobby
+
+```
+./start-lobby.sh
+```
+
+The first start will require you to create a Discord application for OAuth2 (see [Discord OAuth](#discord-oauth) below); `start-lobby.sh` will prompt you and write `Rocket.toml` for you.
 The first start will also download all apworlds in the index, which might take a while.
 
-For anything beyond a local dev instance, see [Configuring a real deployment](#configuring-a-real-deployment) before bringing services up.
+## Archipelago Webhost
 
-# Configuring a real deployment
+```
+./start-webhost.sh
+```
 
-The example compose file ships with `changeme` placeholders for every secret. Before deploying:
+Only required for running community syncs. This fork of Archipelago has some improvements to performance and stability, and reduces tracker cache time from 60 seconds to 30 seconds.
 
-1. `cp docker-compose.yml.example docker-compose.yml`
-2. If running community/webhost mode: `cp taskcluster/docker/ap-worker/webhost-config.yaml.example taskcluster/docker/ap-worker/webhost-config.yaml`
-3. Replace every `changeme` and adjust the deployment-specific fields listed below.
-4. Set up `Rocket.toml` (interactive via `./start.sh`, or write it by hand — see [Discord OAuth](#discord-oauth)).
+This runs on Port 9888 by default.
 
-Both `docker-compose.yml` and `taskcluster/docker/ap-worker/webhost-config.yaml` are gitignored once copied, so future `git pull`s won't clobber your edits.
+## Community AP Tools
 
-## Required secrets
+```
+./start-community-ap-tools.sh
+```
+
+Lobby expected to the running. Only required for running community syncs. It's rocket config will be at `./Rocket.community.toml` which by default is identical to the lobby configuration. 
+
+This can run without the webhost/apx being active, but the dashboard will return a 500.
+
+Dashboard - `/`
+
+Review Tools = `/admin/rooms`
+
+You must set up a Team at `/admin/teams` for the discord server, tie to a lobby id, and then any approved users can go to the review tools page and see the room and edit and approve the yamls.
+
+## Community Sync Guide
+
+### Collecting yamls
+- Start the lobby container, collect yamls in a lobby room
+- Start the community ap tools, create a team, register your helpers, and then have them review the yamls
+- Close the lobby room
+
+### Hosting the game
+- Download the yamls from the lobby, generate a seed
+- Upload the gen to the lobby with `python3 ./upload-room-gen.py --lobby_id <lobby_id> --zip_file <genned_zip>`, where lobby id is the one used to collect yamls. This will match all patches to the correct slots.
+- Start the webhost, upload the gen, create a webhost room
+- Edit `.env.community` to reflect the new room id and port
+- Start the apx container. Users will not be able to connect yet.
+- Restart the community ap tools container to make the dashboard available at `/`
+- Press Generate Passwords to create passwords to every slot. This will now allow people to join.
+- Run `./add-room-info.sh <lobby_id> <host> <port>` where lobby id is the one used to collect yamls, and the host / port is that of the APX websocket server. You will manually have to tell users what port the reduced traffic version of APX is running on for now.
+- Users will now see the password and download links for any patch files on the lobby page, if they own the slot and are authed to it
+
+## Managing the Sync
+
+The dashboard at `/` for the community ap tools has a few handy things to know
+- You can right click a user row to get a list of actions
+- You can block which users are allowed to send deathlinks, and see a count of how many they've sent. (This includes ones the server blocks)
+- Reseting a slot password will disconnect anyone connected to that slot
+  - If you're doing this to change ownership, **change the slot owner first**
+
+## APX (Archipelago Expanded)
+
+```
+./start-apx.sh
+```
+
+Lobby and Webhost expected to the running. Only required for running community syncs. The container will only run successfuly once the webhost is live with a room created. First run will create a `.env.community` file with the lobby id, ap room port and ap room id. This must be changed manually for subsequent syncs. 
+
+# Required secrets
 
 Generate strong random values for each row. `openssl rand -hex 32` or `openssl rand -base64 32` are both fine. Use a fresh value per row unless **Notes** says to share.
 
