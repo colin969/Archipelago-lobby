@@ -12,7 +12,7 @@ This also contains
 
 ## Setup
 Clone with submodules
-`git clone --recurse-submodules 
+`git clone --recurse-submodules`
 
 Make a copy of the docker compose template, and edit the environmental variables for keys / security, then build the docker images. Building may take a while.
 Please see [Required Secrets](#required-secrets)
