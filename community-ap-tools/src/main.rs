@@ -686,7 +686,7 @@ async fn notify_proxy_password_refresh(config: &State<Config>) {
     };
 
     let result = reqwest::Client::new()
-        .post(apx_url)
+        .post(apx_url.clone())
         .header(HeaderName::from_static("x-api-key"), header_value)
         .send()
         .await;
@@ -694,8 +694,8 @@ async fn notify_proxy_password_refresh(config: &State<Config>) {
     match result {
         Ok(resp) if !resp.status().is_success() => {
             eprintln!(
-                "[REFRESH_PASSWORDS] APX API returned error: {}",
-                resp.status()
+                "[REFRESH_PASSWORDS] APX API returned error: ({}) - {}",
+                apx_url.as_str(), resp.status()
             );
         }
         Err(e) => {

@@ -183,10 +183,10 @@ services:
     environment:
       LOBBY_ROOT_URL: "http://lobby:8000"
       LOBBY_API_KEY: "changeme"
-      AP_ROOM_HOST: "http://ap-webhost:9888"
+      AP_ROOM_HOST: "ap-webhost"
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/aplobby
-      AP_API_ROOT: "ap-webhost"
-      APX_API_ROOT: "http://apx:9002"
+      AP_ROOM_HOST: "http://ap-webhost:9888"
+      APX_API_ROOT: "http://apx:9001"
       APX_API_KEY: "changeme"
       ROCKET_SECRET_KEY: "changemechangemechangemechangemechangeme1234"
       ROCKET_PORT: "8010"
