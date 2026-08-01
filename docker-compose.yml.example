@@ -143,13 +143,14 @@ services:
         condition: service_healthy
 
   ap-webhost:
-    image: ghcr.io/archipelagomw/archipelago:nightly
+    build: ./Archipelago
     environment:
       PORT: 9888
     ports:
       - "127.0.0.1:9888:9888"
     volumes:
-      - app_volume:/app
+      - ./data/ap/db:/app/db
+      - ./data/ap/lttp-sprites:/app/data/sprites/alttp/remote
       - ./config.yaml:/app/config.yaml:ro
 
   apx:

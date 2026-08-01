@@ -12,36 +12,37 @@ import (
 
 type passwordStore struct {
 	mu        sync.RWMutex
-	passwords map[string]string
+	passwords map[int]string
 }
 
 func newPasswordStore() *passwordStore {
-	return &passwordStore{passwords: make(map[string]string)}
+	return &passwordStore{passwords: make(map[int]string)}
 }
 
-func (ps *passwordStore) Get(slotName string) (string, bool) {
+func (ps *passwordStore) Get(slotId int) (string, bool) {
 	ps.mu.RLock()
 	defer ps.mu.RUnlock()
-	p, ok := ps.passwords[slotName]
+	p, ok := ps.passwords[slotId]
 	return p, ok
 }
 
-func (ps *passwordStore) Set(slotName, password string) {
+func (ps *passwordStore) Set(slotId int, password string) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
-	ps.passwords[slotName] = password
+	ps.passwords[slotId] = password
 }
 
-func (ps *passwordStore) Delete(slotName string) {
+func (ps *passwordStore) Delete(slotId int) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
-	delete(ps.passwords, slotName)
+	delete(ps.passwords, slotId)
 }
 
 type apxServer struct {
 	logf         func(f string, v ...any)
 	config       *Config
 	roomInfo     RoomInfoMessage
+	roomPlayers  RoomPlayers // Immutable
 	passwords    *passwordStore
 	bounceInfo   *bounceInfoStore
 	connections  *connectionRegistry
@@ -59,22 +60,22 @@ type registeredClient struct {
 // Stores data from all connected clients which is needed globally
 type connectionRegistry struct {
 	mu      sync.RWMutex
-	clients map[string][]*registeredClient
+	clients map[int][]*registeredClient
 	// Tags being covered here means registeredClient can stay immutable
 	tags map[*registeredClient][]string
 }
 
 func newConnectionRegistry() *connectionRegistry {
 	return &connectionRegistry{
-		clients: make(map[string][]*registeredClient),
+		clients: make(map[int][]*registeredClient),
 		tags:    make(map[*registeredClient][]string),
 	}
 }
 
-func (cr *connectionRegistry) Register(slotName string, client *registeredClient, tags []string) {
+func (cr *connectionRegistry) Register(slotId int, client *registeredClient, tags []string) {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
-	cr.clients[slotName] = append(cr.clients[slotName], client)
+	cr.clients[slotId] = append(cr.clients[slotId], client)
 	cr.tags[client] = tags
 }
 
@@ -85,44 +86,44 @@ func (cr *connectionRegistry) UpdateTags(client *registeredClient, tags []string
 	cr.tags[client] = tags
 }
 
-func (cr *connectionRegistry) Kick(slotName string) {
+func (cr *connectionRegistry) Kick(slotId int) {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
 
 	// Disconnect all clients to this slot
-	clients := cr.clients[slotName]
+	clients := cr.clients[slotId]
 	for _, client := range clients {
 		client.cancel()
 		delete(cr.tags, client)
 	}
-	delete(cr.clients, slotName)
+	delete(cr.clients, slotId)
 }
 
-func (cr *connectionRegistry) Unregister(slotName string, client *registeredClient) {
+func (cr *connectionRegistry) Unregister(client *registeredClient) {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
 
 	// Remove client from slot names arrays
-	clients := cr.clients[slotName]
+	clients := cr.clients[client.slotId]
 	i := slices.Index(clients, client)
 	if i < 0 {
 		return
 	}
-	cr.clients[slotName] = slices.Delete(clients, i, i+1)
-	if len(cr.clients[slotName]) == 0 {
-		delete(cr.clients, slotName)
+	cr.clients[client.slotId] = slices.Delete(clients, i, i+1)
+	if len(cr.clients[client.slotId]) == 0 {
+		delete(cr.clients, client.slotId)
 	}
 
 	delete(cr.tags, client)
-	if len(cr.clients[slotName]) == 0 {
-		delete(cr.clients, slotName)
+	if len(cr.clients[client.slotId]) == 0 {
+		delete(cr.clients, client.slotId)
 	}
 }
 
-func (cr *connectionRegistry) BroadcastBounceFromSlot(ctx context.Context, bounceInfo *bounceInfoStore, slotName string, msg BounceMessage) {
+func (cr *connectionRegistry) BroadcastBounceFromSlot(ctx context.Context, bounceInfo *bounceInfoStore, slotId int, msg BounceMessage) {
 	// Strip excluded tags
 	msg.Tags = slices.DeleteFunc(msg.Tags, func(tag string) bool {
-		return bounceInfo.IsExcluded(slotName, tag)
+		return bounceInfo.IsExcluded(slotId, tag)
 	})
 	cr.BroadcastBounce(ctx, msg)
 }
@@ -210,7 +211,7 @@ func (s apxServer) serveConn(w http.ResponseWriter, r *http.Request, reduced boo
 	}
 	defer func() {
 		if connState.registeredClient != nil {
-			s.connections.Unregister(*connState.slotName, connState.registeredClient)
+			s.connections.Unregister(connState.registeredClient)
 		}
 		if connState.apConn != nil {
 			connState.apConn.CloseNow()

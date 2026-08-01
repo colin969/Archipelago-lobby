@@ -156,8 +156,8 @@ function createTrackerTable(tableId)
             {
                 label: "Toggle DeathBlock",
                 action: function (event, row) {
-                    const { name, game, deathlink_excluded } = row.getData();
-                    openDeathBlock(name, game, deathlink_excluded);
+                    const { id, name, game, deathlink_excluded } = row.getData();
+                    openDeathBlock(id, name, game, deathlink_excluded);
                 }
             },
             {

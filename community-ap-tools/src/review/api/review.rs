@@ -455,8 +455,8 @@ async fn get_tracker_info(
 
             MergedSlotInfo {
                 // It's moved for `name:` later, feels stupid but it works to put this line higher
-                deathlinks_sent: *deathlinks.get(&slot.name).unwrap_or(&0),
-                deathlink_excluded: exclusions.get(&slot.name).map_or(false, |slots| slots.contains(&deathlink_tag)),
+                deathlinks_sent: *deathlinks.get(&slot.id).unwrap_or(&0),
+                deathlink_excluded: exclusions.get(&slot.id).map_or(false, |slots| slots.contains(&deathlink_tag)),
                 id: slot.id,
                 name: slot.name,
                 game: slot.game,

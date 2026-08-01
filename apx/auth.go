@@ -36,45 +36,52 @@ func (s apxServer) handleConnect(ctx context.Context, connState *connectionState
 
 	connState.slotName = &msg.Name
 
-	authenticated := false
-	if !s.config.LobbyEnabled {
-		// No lobby, no password enforcement
-		authenticated = true
-	} else {
-		password, ok := s.passwords.Get(*connState.slotName)
-		if ok && msg.Password != nil && password == *msg.Password {
-			authenticated = true
-		}
-	}
-
-	if authenticated {
-		connState.authenticated = true
-
-		if len(connState.pendingDatapackGames) > 0 {
-			if err := s.sendDataPackages(ctx, connState.clientConn, connState.pendingDatapackGames); err != nil {
-				s.logf("error sending pending datapackages: %v", err)
+	// Lobby enabled, enforce lobby passwords
+	if s.config.LobbyEnabled {
+		slotEntry, ok := s.roomPlayers[msg.Name]
+		if !ok {
+			errorMsg := ConnectionRefusedMessage{
+				Cmd:    "ConnectionRefused",
+				Errors: []string{"InvalidSlot"},
 			}
-			connState.pendingDatapackGames = nil
+			s.logf("InvalidSlot for %s", msg.Name)
+			return wsjson.Write(ctx, connState.clientConn, []any{errorMsg})
 		}
-
-		apConn, slotId, game, err := s.connectAP(ctx, connState.clientConn, connState.reduced, msg)
-		if err != nil {
-			return fmt.Errorf("connecting to AP: %w", err)
+		password, ok := s.passwords.Get(slotEntry[1])
+		if !(ok && msg.Password != nil && password == *msg.Password) {
+			errorMsg := ConnectionRefusedMessage{
+				Cmd:    "ConnectionRefused",
+				Errors: []string{"InvalidSlot"},
+			}
+			s.logf("InvalidSlot for %s", msg.Name)
+			return wsjson.Write(ctx, connState.clientConn, []any{errorMsg})
 		}
-		connState.apConn = apConn
-		client := registeredClient{
-			slotId:     slotId,
-			game:       game,
-			cancel:     connState.cancel,
-			clientConn: connState.clientConn,
-		}
-		s.connections.Register(*connState.slotName, &client, msg.Tags)
-		connState.registeredClient = &client
-
-		log.Printf("Connected to %s", msg.Name)
-	} else {
-		log.Printf("Bad password for %s", msg.Name)
 	}
+
+	connState.authenticated = true
+
+	if len(connState.pendingDatapackGames) > 0 {
+		if err := s.sendDataPackages(ctx, connState.clientConn, connState.pendingDatapackGames); err != nil {
+			s.logf("error sending pending datapackages: %v", err)
+		}
+		connState.pendingDatapackGames = nil
+	}
+
+	apConn, slotId, game, err := s.connectAP(ctx, connState.clientConn, connState.reduced, msg)
+	if err != nil {
+		return fmt.Errorf("connecting to AP: %w", err)
+	}
+	connState.apConn = apConn
+	client := registeredClient{
+		slotId:     slotId,
+		game:       game,
+		cancel:     connState.cancel,
+		clientConn: connState.clientConn,
+	}
+	s.connections.Register(slotId, &client, msg.Tags)
+	connState.registeredClient = &client
+
+	log.Printf("Connected to %s", msg.Name)
 
 	return nil
 }

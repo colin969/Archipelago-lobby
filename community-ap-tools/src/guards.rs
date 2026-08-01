@@ -1,17 +1,14 @@
-use std::{collections::BTreeMap, fmt::Display, str::FromStr, sync::OnceLock};
+use std::{collections::BTreeMap, fmt::Display, str::FromStr, sync::OnceLock, time::{Duration, Instant}};
 
 use reqwest::header::{HeaderName, HeaderValue};
 use rocket::{
-    Request,
-    http::Status,
-    outcome::{IntoOutcome, try_outcome},
-    request::{FromRequest, Outcome},
+    Request, http::Status, outcome::{IntoOutcome, try_outcome}, request::{FromRequest, Outcome},
 };
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::Config;
+use crate::{ApRoomCache, Config};
 use crate::datapackage::DataPackage;
 
 #[derive(Deserialize, Debug)]
@@ -56,7 +53,7 @@ pub struct MergedSlotInfo {
     pub discord_id: i64,
     pub has_patch: bool,
     pub password: Option<String>,
-    pub deathlinks_sent: i64,
+    pub deathlinks_sent: i32,
     pub deathlink_excluded: bool,
 }
 
@@ -216,11 +213,28 @@ pub struct DPackage(Vec<ApMsg>);
 
 pub static DATA_PACKAGE: OnceLock<DataPackage> = OnceLock::new();
 pub static SLOT_MAPPING: OnceLock<BTreeMap<usize, String>> = OnceLock::new();
+const AP_ROOM_CACHE_TTL: Duration = Duration::from_secs(30);
 
 #[rocket::async_trait]
 impl<'r> FromRequest<'r> for ApRoom {
     type Error = crate::error::Error;
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        let cache = request.rocket().state::<ApRoomCache>().unwrap();
+
+        // Return cached value if still fresh
+        {
+            let cached = cache.0.lock().unwrap();
+            if let Some((fetched_at, ref tracker_info)) = *cached {
+                if fetched_at.elapsed() < AP_ROOM_CACHE_TTL {
+                    return Outcome::Success(ApRoom {
+                        tracker_info: TrackerInfo {
+                            slots: tracker_info.slots.clone(),
+                        },
+                    });
+                }
+            }
+        }
+
         let config = request.rocket().state::<Config>().unwrap();
         let room_status_url = try_err_outcome!(
             config
@@ -235,7 +249,6 @@ impl<'r> FromRequest<'r> for ApRoom {
             let response = try_err_outcome!(reqwest::get(config.ap_room_url.clone()).await);
             let body = try_err_outcome!(response.text().await);
             let slots = try_err_outcome!(parse_room(body));
-
             let _ = SLOT_MAPPING.set(slots);
         }
 
@@ -249,23 +262,10 @@ impl<'r> FromRequest<'r> for ApRoom {
         let tracker_body = try_err_outcome!(tracker_page.text().await);
 
         let tracker_info = try_err_outcome!(parse_tracker(tracker_body));
-        let ap_host = config.ap_room_host.clone();
-        let ap_port = config.ap_room_port;
-        DATA_PACKAGE.get_or_init(move || {
-            let url = format!("ws://{}:{}", ap_host, ap_port);
-            eprintln!("[GUARD] Connecting to WebSocket at: {}", url);
-            let (mut socket, _) = tungstenite::connect(&url).unwrap();
-            let msg = "[{\"cmd\": \"GetDataPackage\"}]";
-            let _ = socket.read().unwrap();
-            socket.send(tungstenite::Message::Text(msg.into())).unwrap();
-            socket.flush().unwrap();
-            let raw_datapackage = socket.read().unwrap();
-            socket.close(None).unwrap();
 
-            let mut dp: DPackage =
-                serde_json::from_str(raw_datapackage.to_text().unwrap()).unwrap();
-            dp.0.pop().unwrap().data
-        });
+        *cache.0.lock().unwrap() = Some((Instant::now(), TrackerInfo {
+            slots: tracker_info.slots.clone(),
+        }));
 
         Outcome::Success(ApRoom { tracker_info })
     }

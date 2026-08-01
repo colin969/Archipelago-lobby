@@ -29,6 +29,8 @@ type Config struct {
 	LobbyApiKey       string `json:"lobby_api_key"`
 	ApiListenAddr     string `json:"apx_api_listen"`
 	ApiKey            string `json:"apx_api_key"`
+	ApRoomId          string `json:"ap_room_id"`
+	ApApiRoot         string `json:"ap_api_root"`
 }
 
 func main() {
@@ -44,6 +46,11 @@ func run() error {
 	cfg, err := getConfig()
 	if err != nil {
 		return err
+	}
+
+	roomPlayers, err := fetchRoomPlayers(cfg.ApApiRoot, cfg.ApRoomId)
+	if err != nil {
+		return fmt.Errorf("failed to get %s/api/room_players/%s from AP server, aborting: %w", cfg.ApApiRoot, cfg.ApRoomId, err)
 	}
 
 	roomInfo, err := connectAndGetRoomInfo(cfg.APHost, cfg.APPort)
@@ -76,15 +83,16 @@ func run() error {
 		if err != nil {
 			return fmt.Errorf("failed to fetch slot passwords: %w", err)
 		}
-		loadPasswordsIntoStore(connRegistry, passwordStore, slots)
+		loadPasswordsIntoStore(connRegistry, passwordStore, roomPlayers, slots)
 	}
 
-	startApiServer(cfg, passwordStore, bounceInfo, connRegistry)
+	startApiServer(cfg, passwordStore, bounceInfo, connRegistry, roomPlayers)
 
 	srv := apxServer{
 		logf:         log.Printf,
 		config:       cfg,
 		roomInfo:     *roomInfo,
+		roomPlayers:  roomPlayers,
 		passwords:    passwordStore,
 		connections:  connRegistry,
 		bounceInfo:   bounceInfo,
@@ -199,6 +207,12 @@ func getConfig() (*Config, error) {
 	if v := os.Getenv("APX_API_KEY"); v != "" {
 		cfg.ApiKey = v
 	}
+	if v := os.Getenv("AP_ROOM_ID"); v != "" {
+		cfg.ApRoomId = v
+	}
+	if v := os.Getenv("AP_API_ROOT"); v != "" {
+		cfg.ApApiRoot = v
+	}
 
 	if cfg.APPort < 1 || cfg.APPort > 65535 {
 		return nil, fmt.Errorf("port %d out of range (1-65535)", cfg.APPort)
@@ -246,4 +260,27 @@ func connectAndGetRoomInfo(apHost string, apPort int) (*RoomInfoMessage, error) 
 	}
 
 	return nil, errors.New("no RoomInfo packet received in initial message")
+}
+
+type RoomPlayers map[string][2]int
+
+func fetchRoomPlayers(apApiRoot string, apRoomId string) (RoomPlayers, error) {
+	url := fmt.Sprintf("%s/api/room_players/%s", apApiRoot, apRoomId)
+
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("fetching room players: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status %d from /api/room_players", resp.StatusCode)
+	}
+
+	var raw map[string][2]int
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, fmt.Errorf("decoding room players: %w", err)
+	}
+
+	return RoomPlayers(raw), nil
 }

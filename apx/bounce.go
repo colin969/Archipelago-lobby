@@ -13,26 +13,26 @@ import (
 type bounceInfoStore struct {
 	mu sync.RWMutex
 	// Maps slot name to deathlink count
-	counts map[string]int
+	counts map[int]int
 	// Probability to accept a deathlink message
 	deathlinkProbability float64
 	// Slots that aren't allowed to send certain tags
 	// Absurd typing, but should be O(1) because it's all keys in a map, fite me
-	excluded map[string]map[string]struct{}
+	excluded map[int]map[string]struct{}
 }
 
 func newBounceInfoStore() *bounceInfoStore {
 	return &bounceInfoStore{
-		counts:               make(map[string]int),
+		counts:               make(map[int]int),
 		deathlinkProbability: 1,
-		excluded:             make(map[string]map[string]struct{}),
+		excluded:             make(map[int]map[string]struct{}),
 	}
 }
 
-func (ds *bounceInfoStore) Get() map[string]int {
+func (ds *bounceInfoStore) Get() map[int]int {
 	ds.mu.RLock()
 	defer ds.mu.RUnlock()
-	result := make(map[string]int, len(ds.counts))
+	result := make(map[int]int, len(ds.counts))
 	for k, v := range ds.counts {
 		result[k] = v
 	}
@@ -51,11 +51,11 @@ func (ds *bounceInfoStore) SetProbability(probability float64) {
 	ds.deathlinkProbability = probability
 }
 
-func (ds *bounceInfoStore) GetExclusions() map[string][]string {
+func (ds *bounceInfoStore) GetExclusions() map[int][]string {
 	ds.mu.RLock()
 	defer ds.mu.RUnlock()
 	// Make a safe copy of it to return
-	result := make(map[string][]string, len(ds.excluded))
+	result := make(map[int][]string, len(ds.excluded))
 	for slot, tags := range ds.excluded {
 		tagList := make([]string, 0, len(tags))
 		for tag := range tags {
@@ -66,36 +66,36 @@ func (ds *bounceInfoStore) GetExclusions() map[string][]string {
 	return result
 }
 
-func (ds *bounceInfoStore) Exclude(slotName, tag string) {
+func (ds *bounceInfoStore) Exclude(slotId int, tag string) {
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
-	if ds.excluded[slotName] == nil {
-		ds.excluded[slotName] = make(map[string]struct{})
+	if ds.excluded[slotId] == nil {
+		ds.excluded[slotId] = make(map[string]struct{})
 	}
-	ds.excluded[slotName][tag] = struct{}{}
+	ds.excluded[slotId][tag] = struct{}{}
 }
 
-func (ds *bounceInfoStore) Unexclude(slotName, tag string) {
+func (ds *bounceInfoStore) Unexclude(slotId int, tag string) {
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
-	delete(ds.excluded[slotName], tag)
-	if len(ds.excluded[slotName]) == 0 {
-		delete(ds.excluded, slotName)
+	delete(ds.excluded[slotId], tag)
+	if len(ds.excluded[slotId]) == 0 {
+		delete(ds.excluded, slotId)
 	}
 }
 
-func (ds *bounceInfoStore) IsExcluded(slotName, tag string) bool {
+func (ds *bounceInfoStore) IsExcluded(slotId int, tag string) bool {
 	ds.mu.RLock()
 	defer ds.mu.RUnlock()
-	_, ok := ds.excluded[slotName][tag]
+	_, ok := ds.excluded[slotId][tag]
 	return ok
 }
 
 // Add to the slot's deathlink count
-func (ds *bounceInfoStore) Add(slotName string) {
+func (ds *bounceInfoStore) Add(slotId int) {
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
-	ds.counts[slotName]++
+	ds.counts[slotId]++
 }
 
 func (s apxServer) handleBounce(ctx context.Context, connState *connectionState, raw map[string]any) error {
@@ -116,10 +116,10 @@ func (s apxServer) handleBounce(ctx context.Context, connState *connectionState,
 
 	// Strip any excluded tags
 	msg.Tags = slices.DeleteFunc(msg.Tags, func(tag string) bool {
-		return s.bounceInfo.IsExcluded(*connState.slotName, tag)
+		return s.bounceInfo.IsExcluded(connState.registeredClient.slotId, tag)
 	})
 
-	s.connections.BroadcastBounceFromSlot(ctx, s.bounceInfo, *connState.slotName, msg)
+	s.connections.BroadcastBounceFromSlot(ctx, s.bounceInfo, connState.registeredClient.slotId, msg)
 
 	return nil
 }
@@ -136,15 +136,15 @@ func (s apxServer) handleDeathLink(ctx context.Context, connState *connectionSta
 		return fmt.Errorf("unmarshalling deathlink data: %w", err)
 	}
 
-	s.bounceInfo.Add(*connState.slotName)
+	s.bounceInfo.Add(connState.registeredClient.slotId)
 	log.Printf("deathlink: slot=%q source=%q cause=%v", *connState.slotName, dl.Source, dl.Cause)
 
 	// Strip any excluded tags
 	msg.Tags = slices.DeleteFunc(msg.Tags, func(tag string) bool {
-		return s.bounceInfo.IsExcluded(*connState.slotName, tag)
+		return s.bounceInfo.IsExcluded(connState.registeredClient.slotId, tag)
 	})
 
-	if s.bounceInfo.IsExcluded(*connState.slotName, "DeathLink") {
+	if s.bounceInfo.IsExcluded(connState.registeredClient.slotId, "DeathLink") {
 		log.Printf("deathlink blocked for excluded slot %q", *connState.slotName)
 		return nil
 	}
@@ -155,7 +155,7 @@ func (s apxServer) handleDeathLink(ctx context.Context, connState *connectionSta
 		return nil
 	}
 
-	s.connections.BroadcastBounceFromSlot(ctx, s.bounceInfo, *connState.slotName, msg)
+	s.connections.BroadcastBounceFromSlot(ctx, s.bounceInfo, connState.registeredClient.slotId, msg)
 
 	return nil
 }

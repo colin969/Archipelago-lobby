@@ -43,6 +43,11 @@ type ConnectMessage struct {
 	SlotData      bool           `json:"slot_data"`
 }
 
+type ConnectionRefusedMessage struct {
+	Cmd    MessageType `json:"cmd"`
+	Errors []string    `json:"errors"`
+}
+
 type ConnectUpdateMessage struct {
 	Cmd           MessageType `json:"cmd"`
 	ItemsHandling *int        `json:"items_handling"`

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -11,6 +12,7 @@ import (
 
 type apiServer struct {
 	config        *Config
+	roomPlayers   RoomPlayers // Immutable
 	passwords     *passwordStore
 	bounceInfo    *bounceInfoStore
 	wsConnections *connectionRegistry
@@ -23,12 +25,13 @@ type Deathlink struct {
 	CreatedAt string  `json:"created_at"`
 }
 
-func startApiServer(cfg *Config, passwords *passwordStore, bounceInfo *bounceInfoStore, wsConnections *connectionRegistry) *http.Server {
+func startApiServer(cfg *Config, passwords *passwordStore, bounceInfo *bounceInfoStore, wsConnections *connectionRegistry, roomPlayers RoomPlayers) *http.Server {
 	srv := &apiServer{
 		config:        cfg,
 		passwords:     passwords,
 		bounceInfo:    bounceInfo,
 		wsConnections: wsConnections,
+		roomPlayers:   roomPlayers,
 	}
 
 	r := mux.NewRouter()
@@ -38,7 +41,7 @@ func startApiServer(cfg *Config, passwords *passwordStore, bounceInfo *bounceInf
 	api.HandleFunc("/refresh_passwords", srv.handlePasswordRefresh).Methods(http.MethodPost)
 	api.HandleFunc("/deathlinks", srv.handleDeathlinks).Methods(http.MethodGet)
 	api.HandleFunc("/bounce_exclusions", srv.handleBounceExclusionsList).Methods(http.MethodGet)
-	api.HandleFunc("/bounce_exclusions/{slotname}/{tag}", srv.handleBounceExclusions).Methods(http.MethodPost, http.MethodDelete)
+	api.HandleFunc("/bounce_exclusions/{slotId}/{tag}", srv.handleBounceExclusions).Methods(http.MethodPost, http.MethodDelete)
 	api.HandleFunc("/deathlink_probability", srv.handleProbability).Methods(http.MethodGet, http.MethodPost)
 
 	s := &http.Server{
@@ -84,7 +87,7 @@ func (a *apiServer) handlePasswordRefresh(w http.ResponseWriter, r *http.Request
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to fetch passwords from lobby"})
 		return
 	}
-	loadPasswordsIntoStore(a.wsConnections, a.passwords, slots)
+	loadPasswordsIntoStore(a.wsConnections, a.passwords, a.roomPlayers, slots)
 }
 
 func (a *apiServer) handleDeathlinks(w http.ResponseWriter, r *http.Request) {
@@ -100,16 +103,24 @@ func (a *apiServer) handleBounceExclusionsList(w http.ResponseWriter, r *http.Re
 func (a *apiServer) handleBounceExclusions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	vars := mux.Vars(r)
-	slotName := vars["slotname"]
+	slotId, err := strconv.Atoi(vars["slotId"])
+	if err != nil {
+		http.Error(w, "invalid slotId", http.StatusBadRequest)
+		return
+	}
 	tag := vars["tag"]
+	if tag == "" {
+		http.Error(w, "missing tag", http.StatusBadRequest)
+		return
+	}
 
 	switch r.Method {
 	case http.MethodPost:
-		a.bounceInfo.Exclude(slotName, tag)
+		a.bounceInfo.Exclude(slotId, tag)
 		json.NewEncoder(w).Encode(map[string]any{"excluded": true})
 
 	case http.MethodDelete:
-		a.bounceInfo.Unexclude(slotName, tag)
+		a.bounceInfo.Unexclude(slotId, tag)
 		json.NewEncoder(w).Encode(map[string]any{"excluded": false})
 	}
 }

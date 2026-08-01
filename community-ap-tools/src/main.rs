@@ -6,8 +6,7 @@ use anyhow::{Context, anyhow};
 use askama::Template;
 use askama_web::WebTemplate;
 use auth::{LoggedInSession, Session};
-use guards::{ApRoom, DATA_PACKAGE, LobbyRoom, SlotInfo, SlotPasswords, SlotStatus};
-use itertools::Itertools;
+use guards::{ApRoom, DATA_PACKAGE, LobbyRoom, SlotPasswords};
 use reqwest::{
     Url,
     header::{HeaderMap, HeaderName, HeaderValue},
@@ -33,7 +32,7 @@ mod schema;
 
 use diesel_migrations::{EmbeddedMigrations, embed_migrations};
 
-use crate::guards::MergedSlotInfo;
+use crate::guards::{MergedSlotInfo, TrackerInfo};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
@@ -43,11 +42,9 @@ pub struct Discord;
 #[derive(Template, WebTemplate)]
 #[template(path = "index.html")]
 pub struct RunIndexTpl {
-    lobby_room: LobbyRoom,
-    ap_room: ApRoom,
+    lobby_room_id: Uuid,
     lobby_root_url: String,
     is_session_valid: bool,
-    unclaimed_slots: Vec<SlotInfo>,
     slot_passwords: SlotPasswords,
 }
 
@@ -60,7 +57,7 @@ pub struct Deathlink {
 }
 
 #[derive(Deserialize, Debug)]
-struct ExclusionsResponse(HashMap<String, Vec<String>>);
+struct ExclusionsResponse(HashMap<usize, Vec<String>>);
 
 #[derive(Deserialize, Serialize)]
 struct ProbabilityResponse {
@@ -78,7 +75,7 @@ pub struct DeathlinksSlot {
     pub game: String,
     pub discord_handle: String,
     pub is_excluded: bool,
-    pub count: i64,
+    pub count: i32,
 }
 
 #[derive(Template, WebTemplate)]
@@ -88,7 +85,7 @@ pub struct DeathlinksIndexTpl {
     lobby_root_url: String,
     is_session_valid: bool,
     slots: Vec<DeathlinksSlot>,
-    total_deaths: i64,
+    total_deaths: i32,
 }
 
 #[catch(401)]
@@ -108,7 +105,7 @@ fn unauthorized(req: &Request) -> crate::error::Result<Redirect> {
 async fn root_run(
     _session: LoggedInSession,
     lobby_room: LobbyRoom,
-    mut ap_room: ApRoom,
+    ap_room: ApRoom,
     slot_passwords: SlotPasswords,
     config: &State<Config>,
 ) -> crate::error::Result<RunIndexTpl> {
@@ -118,64 +115,9 @@ async fn root_run(
         ))?;
     }
 
-    ap_room.tracker_info.slots.sort_by(|a, b| {
-        // by slot_status_fn color
-        let color_a = match filters::slot_status_fn(a).unwrap_or("green") {
-            "green" => 2,
-            "yellow" => 1,
-            _ => 0,
-        };
-        let color_b = match filters::slot_status_fn(b).unwrap_or("green") {
-            "green" => 2,
-            "yellow" => 1,
-            _ => 0,
-        };
-
-        color_a
-            .cmp(&color_b)
-            // by status
-            .then_with(|| a.status.cmp(&b.status))
-            // by checks (0 checks first, only for disconnected slots)
-            .then_with(|| {
-                if a.status == SlotStatus::Disconnected && b.status == SlotStatus::Disconnected {
-                    a.checks.0.cmp(&b.checks.0)
-                } else {
-                    std::cmp::Ordering::Equal
-                }
-            })
-            // by last_activity (descending)
-            .then_with(|| match (a.last_activity, b.last_activity) {
-                (Some(x), Some(y)) => y.total_cmp(&x),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => std::cmp::Ordering::Equal,
-            })
-    });
-
-    let unclaimed_slots = ap_room
-        .tracker_info
-        .slots
-        .iter()
-        .filter(|slot| {
-            if slot.status != SlotStatus::Disconnected {
-                return false;
-            }
-
-            if slot.checks.0 != 0 {
-                return false;
-            }
-
-            true
-        })
-        .unique_by(|slot| lobby_room.yamls.get(slot.id - 1).unwrap().discord_id)
-        .cloned()
-        .collect();
-
     let index = RunIndexTpl {
-        lobby_room,
-        ap_room,
+        lobby_room_id: lobby_room.id,
         lobby_root_url: config.lobby_root_url.to_string(),
-        unclaimed_slots,
         is_session_valid: config.is_session_valid,
         slot_passwords,
     };
@@ -194,7 +136,7 @@ async fn root(
     root_run(session, lobby_room, ap_room, slot_passwords, config).await
 }
 
-async fn fetch_deathlinks(config: &Config, room_id: &str) -> crate::error::Result<HashMap<String, i64>> {
+async fn fetch_deathlinks(config: &Config, room_id: &str) -> crate::error::Result<HashMap<usize, i32>> {
     let apx_api_root = config
         .apx_api_root
         .as_ref()
@@ -214,7 +156,7 @@ async fn fetch_deathlinks(config: &Config, room_id: &str) -> crate::error::Resul
     Ok(response.json().await?)
 }
 
-async fn fetch_exclusions(config: &Config) -> crate::error::Result<HashMap<String, Vec<String>>> {
+async fn fetch_exclusions(config: &Config) -> crate::error::Result<HashMap<usize, Vec<String>>> {
     let apx_api_root = config
         .apx_api_root
         .as_ref()
@@ -259,8 +201,8 @@ async fn deathlinks(
             game: slot.game.clone(),
             discord_handle: lobby_slot.discord_handle.clone(),
             // Definitely a cleaner way of doing this
-            is_excluded: excluded_slots.get(&slot.name).map_or(false, |slots| slots.contains(&deathlink_tag)),
-            count: *deathlinks.get(&slot.name).unwrap_or(&0),
+            is_excluded: excluded_slots.get(&slot.id).map_or(false, |slots| slots.contains(&deathlink_tag)),
+            count: *deathlinks.get(&slot.id).unwrap_or(&0),
         })
         .collect();
 
@@ -275,14 +217,14 @@ async fn deathlinks(
     })
 }
 
-#[rocket::post("/api/bounce_exclusions/<slot_name>/<tag_name>")]
+#[rocket::post("/api/bounce_exclusions/<slot_id>/<tag_name>")]
 async fn proxy_add_exclusion(
     _session: LoggedInSession,
-    slot_name: &str,
+    slot_id: i32,
     tag_name: &str,
     config: &State<Config>,
     cache: &State<TrackerInfoCache>,
-) -> crate::error::Result<rocket::http::Status> {
+) -> crate::error::Result<(rocket::http::Status, rocket::serde::json::Json<serde_json::Value>)> {
     let apx_api_root = config
         .apx_api_root
         .as_ref()
@@ -293,10 +235,9 @@ async fn proxy_add_exclusion(
         .ok_or_else(|| anyhow!("APX API key not configured"))?;
 
     let client = reqwest::Client::new();
-    let encoded_slot = urlencoding::encode(&slot_name);
     let url = format!(
         "{}api/bounce_exclusions/{}/{}",
-        apx_api_root, encoded_slot, tag_name
+        apx_api_root, slot_id, tag_name
     );
     let response = client
         .post(url)
@@ -307,14 +248,17 @@ async fn proxy_add_exclusion(
     // Invalidate tracker info cache
     *cache.0.lock().unwrap() = None;
 
-    Ok(rocket::http::Status::from_code(response.status().as_u16())
-        .unwrap_or(rocket::http::Status::InternalServerError))
+    let status = rocket::http::Status::from_code(response.status().as_u16())
+        .unwrap_or(rocket::http::Status::InternalServerError);
+    let body: serde_json::Value = response.json().await?;
+
+    Ok((status, rocket::serde::json::Json(body)))
 }
 
-#[rocket::delete("/api/bounce_exclusions/<slot_name>/<tag_name>")]
+#[rocket::delete("/api/bounce_exclusions/<slot_id>/<tag_name>")]
 async fn proxy_remove_exclusion(
     _session: LoggedInSession,
-    slot_name: &str,
+    slot_id: i32,
     tag_name: &str,
     config: &State<Config>,
     cache: &State<TrackerInfoCache>,
@@ -329,11 +273,10 @@ async fn proxy_remove_exclusion(
         .ok_or_else(|| anyhow!("APX API key not configured"))?;
 
     let client = reqwest::Client::new();
-    let encoded_slot = urlencoding::encode(&slot_name);
     let response = client
         .delete(format!(
             "{}api/bounce_exclusions/{}/{}",
-            apx_api_root, encoded_slot, tag_name
+            apx_api_root, slot_id, tag_name
         ))
         .header("X-API-Key", apx_api_key)
         .send()
@@ -371,7 +314,7 @@ async fn get_deathlink_probability(
     Ok(Json(data))
 }
 
-#[rocket::put("/api/deathlink_probability", data = "<request>")]
+#[rocket::post("/api/deathlink_probability", data = "<request>")]
 async fn set_deathlink_probability(
     _session: LoggedInSession,
     config: &State<Config>,
@@ -388,7 +331,7 @@ async fn set_deathlink_probability(
 
     let client = reqwest::Client::new();
     let response = client
-        .put(format!("{}/api/deathlink_probability", apx_api_root))
+        .post(format!("{}/api/deathlink_probability", apx_api_root))
         .header("X-API-Key", apx_api_key)
         .json(&request.into_inner())
         .send()
@@ -858,8 +801,9 @@ pub struct Config {
 }
 
 pub struct TrackerInfoCache(pub Arc<Mutex<Option<(Instant, Vec<MergedSlotInfo>)>>>);
+pub struct ApRoomCache(pub Arc<Mutex<Option<(Instant, TrackerInfo)>>>);
 
-const TRACKER_CACHE_TTL: Duration = Duration::from_secs(20);
+const TRACKER_CACHE_TTL: Duration = Duration::from_secs(30);
 
 #[rocket::main]
 async fn main() -> crate::error::Result<()> {
@@ -955,6 +899,7 @@ async fn main() -> crate::error::Result<()> {
         .manage(config)
         .manage(db_pool)
         .manage(TrackerInfoCache(Arc::new(Mutex::new(None))))
+        .manage(ApRoomCache(Arc::new(Mutex::new(None))))
         .attach(OAuth2::<Discord>::fairing("discord"))
         .launch()
         .await

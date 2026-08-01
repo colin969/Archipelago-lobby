@@ -70,7 +70,7 @@ You must set up a Team at `/admin/teams` for the discord server, tie to a lobby 
 
 ### Hosting the game
 - Download the yamls from the lobby, generate a seed
-- Upload the gen to the lobby with `python3 ./upload-room-gen.py --lobby_id <lobby_id> --zip_file <genned_zip>`, where lobby id is the one used to collect yamls. This will match all patches to the correct slots.
+- Upload the gen to the lobby with `python3 ./upload-room-gen.py <lobby_id> <genned_zip>`, where lobby id is the one used to collect yamls. This will match all patches to the correct slots.
 - Start the webhost, upload the gen, create a webhost room
 - Edit `.env.community` to reflect the new room id and port
 - Start the apx container. Users will not be able to connect yet.

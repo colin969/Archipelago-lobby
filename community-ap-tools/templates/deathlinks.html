@@ -129,9 +129,9 @@ button {
             }
             try {
                 const response = await fetch('/api/deathlink_probability', {
-                    method: 'PUT',
+                    method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ probability })
+                    body: JSON.stringify({ "probability": probability / 100 })
                 });
                 const data = await response.json();
                 probabilityInput.value = Math.round(data.probability * 100);

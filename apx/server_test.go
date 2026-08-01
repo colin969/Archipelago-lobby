@@ -56,7 +56,7 @@ func TestBroadcastBounce(t *testing.T) {
 			}
 
 			reg := newConnectionRegistry()
-			reg.Register("testslot", rc, tc.clientTags)
+			reg.Register(tc.clientSlot, rc, tc.clientTags)
 
 			reg.BroadcastBounce(context.Background(), BounceMessage{
 				Tags:  tc.msgTags,
@@ -108,7 +108,7 @@ func TestBroadcastBounce_SlotExclusions(t *testing.T) {
 			}
 
 			reg := newConnectionRegistry()
-			reg.Register("testslot", rc, tc.clientTags)
+			reg.Register(1, rc, tc.clientTags)
 
 			// Simulate BroadcastBounceFromSlot manually to avoid needing a bounce info store for testing
 			excludedSet := make(map[string]struct{}, len(tc.excludedTags))

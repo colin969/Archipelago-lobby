@@ -41,17 +41,18 @@ func fetchSlotPasswords(cfg *Config) ([]SlotPasswordInfo, error) {
 	return slots, nil
 }
 
-func loadPasswordsIntoStore(connections *connectionRegistry, store *passwordStore, slots []SlotPasswordInfo) {
+func loadPasswordsIntoStore(connections *connectionRegistry, store *passwordStore, roomPlayers RoomPlayers, slots []SlotPasswordInfo) {
 	for _, slot := range slots {
-		if slot.Password != nil && *slot.Password != "" {
-			current, ok := store.Get(slot.PlayerName)
-			store.Set(slot.PlayerName, *slot.Password)
+		slotEntry, ok := roomPlayers[slot.PlayerName]
+		if ok && slot.Password != nil && *slot.Password != "" {
+			current, ok := store.Get(slotEntry[1])
+			store.Set(slotEntry[1], *slot.Password)
 			// If the password has changed, boot any connected clients from that slot
 			if !ok || current != *slot.Password {
-				connections.Kick(slot.PlayerName)
+				connections.Kick(slotEntry[1])
 			}
-		} else {
-			store.Delete(slot.PlayerName)
+		} else if ok {
+			store.Delete(slotEntry[1])
 		}
 	}
 }
