@@ -51,9 +51,9 @@ func (s apxServer) handleConnect(ctx context.Context, connState *connectionState
 		if !(ok && msg.Password != nil && password == *msg.Password) {
 			errorMsg := ConnectionRefusedMessage{
 				Cmd:    "ConnectionRefused",
-				Errors: []string{"InvalidSlot"},
+				Errors: []string{"InvalidPassword"},
 			}
-			s.logf("InvalidSlot for %s", msg.Name)
+			s.logf("InvalidPassword for %s", msg.Name)
 			return wsjson.Write(ctx, connState.clientConn, []any{errorMsg})
 		}
 	}
