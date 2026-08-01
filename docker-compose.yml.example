@@ -165,6 +165,7 @@ services:
       APX_API_LISTENADDR: "0.0.0.0:9001"
       APX_API_KEY: "changeme"
       AP_ROOM_HOST: "ap-webhost"
+      AP_API_ROOT: "http://ap-webhost:9888"
     env_file:
       - ./.env.community
     ports:
