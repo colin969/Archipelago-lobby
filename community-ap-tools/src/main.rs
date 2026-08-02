@@ -17,7 +17,6 @@ use rocket::{
 };
 use rocket::fs::{FileServer, relative};
 use rocket_oauth2::OAuth2;
-use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use tungstenite::{Message, connect};
 use uuid::Uuid;
@@ -44,7 +43,6 @@ pub struct Discord;
 pub struct RunIndexTpl {
     lobby_room_id: Uuid,
     lobby_root_url: String,
-    is_session_valid: bool,
     slot_passwords: SlotPasswords,
 }
 
@@ -83,7 +81,6 @@ pub struct DeathlinksSlot {
 pub struct DeathlinksIndexTpl {
     lobby_room: LobbyRoom,
     lobby_root_url: String,
-    is_session_valid: bool,
     slots: Vec<DeathlinksSlot>,
     total_deaths: i32,
 }
@@ -118,7 +115,6 @@ async fn root_run(
     let index = RunIndexTpl {
         lobby_room_id: lobby_room.id,
         lobby_root_url: config.lobby_root_url.to_string(),
-        is_session_valid: config.is_session_valid,
         slot_passwords,
     };
 
@@ -231,7 +227,6 @@ async fn deathlinks(
     Ok(DeathlinksIndexTpl {
         lobby_room,
         lobby_root_url: config.lobby_root_url.to_string(),
-        is_session_valid: config.is_session_valid,
         slots,
         total_deaths,
     })
@@ -518,55 +513,14 @@ async fn give(
     Ok(Redirect::to("/"))
 }
 
-/// Check that the currently provided session cookie is valid by checking for the presence of the
-/// `#cmd` element on the page.
-async fn check_session(config: &Config) -> crate::error::Result<bool> {
-    eprintln!(
-        "[STARTUP] Checking session validity at: {}",
-        config.ap_room_url
-    );
-    let client = reqwest::Client::new();
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        HeaderName::from_static("cookie"),
-        HeaderValue::from_str(&config.ap_session_cookie)?,
-    );
-    let res = client
-        .get(config.ap_room_url.clone())
-        .headers(headers)
-        .send()
-        .await;
-
-    let res = match res {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("[STARTUP] Failed to fetch session check URL: {}", e);
-            return Ok(false);
-        }
-    };
-
-    eprintln!("[STARTUP] Session check response status: {}", res.status());
-
-    let body = res.text().await?;
-
-    let html = Html::parse_document(&body);
-    let cmd_selector = Selector::parse("#cmd").unwrap();
-    let cmd_input = html.select(&cmd_selector);
-
-    let is_valid = cmd_input.count() == 1;
-    eprintln!("[STARTUP] Session is valid: {}", is_valid);
-
-    Ok(is_valid)
-}
-
 async fn ap_cmd(cmd: String, config: &State<Config>) -> crate::error::Result<()> {
     let client = reqwest::Client::new();
     let form = reqwest::multipart::Form::new().text("cmd", cmd);
 
     let mut headers = HeaderMap::new();
     headers.insert(
-        HeaderName::from_static("cookie"),
-        HeaderValue::from_str(&config.ap_session_cookie)?,
+        HeaderName::from_static("x-api-key"),
+        HeaderValue::from_str(&config.ap_admin_api_key)?,
     );
 
     // There's no point in looking at the response here. AP doesn't have a proper API for rooms
@@ -814,8 +768,7 @@ pub struct Config {
     pub ap_api_root: Url,
     pub ap_room_host: String,
     pub ap_room_port: u16,
-    pub ap_session_cookie: String,
-    pub is_session_valid: bool,
+    pub ap_admin_api_key: String,
     pub apx_api_root: Option<Url>,
     pub apx_api_key: Option<String>,
 }
@@ -842,8 +795,8 @@ async fn main() -> crate::error::Result<()> {
         .expect("Provide an `AP_ROOM_PORT` env variable")
         .parse::<u16>()
         .expect("AP_ROOM_PORT must be a valid port number");
-    let ap_session_cookie =
-        std::env::var("AP_SESSION_COOKIE").expect("Provide an `AP_SESSION_COOKIE` env variable");
+    let ap_admin_api_key =
+        std::env::var("AP_ADMIN_API_KEY").expect("Provide an `AP_ADMIN_AP_KEY` env variable");
 
     let ap_api_root = std::env::var("AP_API_ROOT")
         .ok()
@@ -874,18 +827,15 @@ async fn main() -> crate::error::Result<()> {
         lobby_root_url: lobby_root_url.parse()?,
         lobby_room_id: lobby_room_id.parse()?,
         lobby_api_key,
-        ap_session_cookie,
         ap_room_url,
         ap_api_root,
         ap_room_host,
         ap_room_port,
         ap_room_id,
-        is_session_valid: false,
+        ap_admin_api_key,
         apx_api_root,
         apx_api_key,
     };
-
-    config.is_session_valid = check_session(&config).await?;
 
     rocket::build()
         .mount(

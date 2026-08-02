@@ -18,14 +18,11 @@ if [[ ! -s ".env.community" ]]; then
     read -r AP_ROOM_ID
     echo "Paste the AP room port:"
     read -r AP_ROOM_PORT
-    echo "Paste the AP session cookie (with session=):"
-    read -r AP_SESSION_COOKIE
 
     cat > .env.community <<EOF
 LOBBY_ROOM_ID=$LOBBY_ROOM_ID
 AP_ROOM_ID=$AP_ROOM_ID
 AP_ROOM_PORT=$AP_ROOM_PORT
-AP_SESSION_COOKIE=$AP_SESSION_COOKIE
 EOF
     echo "Saved to .env.community"
 fi

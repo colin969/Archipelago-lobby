@@ -145,7 +145,7 @@ services:
   ap-webhost:
     build: ./Archipelago
     environment:
-      PORT: 9888
+      ADMIN_API_KEY: "ap_changeme"
     ports:
       - "127.0.0.1:9888:9888"
     volumes:
@@ -188,6 +188,7 @@ services:
       AP_ROOM_HOST: "ap-webhost"
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/aplobby
       AP_ROOM_HOST: "http://ap-webhost:9888"
+      AP_ADMIN_API_KEY: "ap_changeme"
       APX_API_ROOT: "http://apx:9001"
       APX_API_KEY: "changeme"
       ROCKET_SECRET_KEY: "changemechangemechangemechangemechangeme1234"
