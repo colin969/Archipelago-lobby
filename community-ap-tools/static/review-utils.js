@@ -98,8 +98,8 @@ function createChecksTable(tableId, slotId, sphereSidebar)
         height: "100%",
         layout: "fitDataStretch",
         initialSort: [
-            { column: "Sphere", dir: "asc" },
-            { column: "Location", dir: "asc"}
+            { column: "location", dir: "asc"},
+            { column: "sphere", dir: "asc" }
         ],
         columns: [
             { title: "Sphere", field: "sphere" },
@@ -168,13 +168,13 @@ function createAllChecksTable(tableId, sphereSidebar) {
         height: "100%",
         layout: "fitDataStretch",
         initialSort: [
-            { column: "Sphere", dir: "asc" },
-            { column: "Slot", dir: "asc" },
-            { column: "Location", dir: "asc" },
+            { column: "location", dir: "asc" },
+            { column: "slot", dir: "asc" },
+            { column: "sphere", dir: "asc" },
         ],
         columns: [
             { title: "Sphere",   field: "sphere" },
-            { title: "Slot",     field: "slot",     headerFilter: "list", headerFilterParams: { valuesLookup: true, clearable: true, sort: "asc" } },
+            { title: "Slot",     field: "slot", headerFilter: "input" },
             { title: "Location", field: "location", headerFilter: "input" },
             { title: "Checked",  field: "checked",  formatter: "tickCross" },
         ],
@@ -367,6 +367,8 @@ function createTrackerTable(tableId)
         if (window.slots_loaded_once !== true)
         {
             refreshSlotsToPing();
+            // We need mutation to happen on first render. Should really move it out of the col setup?
+            setTimeout(refreshSphere1ToPing, 200);
         }
     });
 
@@ -410,13 +412,7 @@ function refreshSlotsToPing() {
             const chunk = neverConnected.slice(i, i + 10);
             const mentions = chunk.map((val) => `<@${val[1]}>`).join(" ");
             const li = document.createElement("li");
-    
-            for (const val of chunk) {
-                const span = document.createElement("span");
-                span.textContent = "@" + val[0];
-                li.appendChild(span);
-            }
-    
+
             const button = document.createElement("button");
             button.style.marginLeft = "10px";
             button.style.cursor = "pointer";
@@ -425,11 +421,73 @@ function refreshSlotsToPing() {
                 navigator.clipboard.writeText(mentions + " you are not connected. If you need help please speak in the AP support channel. If you are connected in the meantime all good, you can ignore the ping");
             };
             li.appendChild(button);
+    
+            for (const val of chunk) {
+                const span = document.createElement("span");
+                span.textContent = "@" + val[0];
+                li.appendChild(span);
+            }
+    
             ul.appendChild(li);
         }
     
         container.appendChild(ul);
     }
+}
+
+function refreshSphere1ToPing() {
+    if (window.review_data === undefined) return;
+
+    const seen = new Set();
+    const incompleteSphere1 = [];
+
+    for (const row of window.review_data) {
+        if (
+            // Cursed I know, but we flip it on first render
+            row["incomplete_sphere1"] === false &&
+            row["status"] !== "GoalCompleted" &&
+            !seen.has(row["discord_id"])
+        ) {
+            seen.add(row["discord_id"]);
+            incompleteSphere1.push([row["discord_handle"], row["discord_id"]]);
+        }
+    }
+
+    const container = document.getElementById("sphere1-incomplete-slots");
+    if (!container) return;
+
+    // Remove old list
+    container.querySelectorAll("ul").forEach(ul => ul.remove());
+
+    // Build new list
+    const ul = document.createElement("ul");
+
+    for (let i = 0; i < incompleteSphere1.length; i += 10) {
+        const chunk = incompleteSphere1.slice(i, i + 10);
+        const mentions = chunk.map((val) => `<@${val[1]}>`).join(" ");
+        const li = document.createElement("li");
+
+        const button = document.createElement("button");
+        button.style.marginLeft = "10px";
+        button.style.cursor = "pointer";
+        button.innerHTML = '<i class="fa-solid fa-copy"></i>';
+        button.onclick = function () {
+            navigator.clipboard.writeText(
+                mentions + " you have not completed your sphere 1 checks. If you're reading this I haven't bothered to update the text for this yet."
+            );
+        };
+        li.appendChild(button);
+
+        for (const val of chunk) {
+            const span = document.createElement("span");
+            span.textContent = "@" + val[0];
+            li.appendChild(span);
+        }
+
+        ul.appendChild(li);
+    }
+
+    container.appendChild(ul);
 }
 
 function timeSince(secondsSince) {

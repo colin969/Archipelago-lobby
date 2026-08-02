@@ -134,7 +134,15 @@ td {
 
             <button onclick="refreshSlotsToPing()">Refresh Slots to Ping</button>
             <div id="unconnected-slots">
-                Slots to ping (not connected, 0 checks):
+                Slots that have never sent a check:
+                <ul>
+                    Loading
+                </ul>
+            </div>
+
+            <button onclick="refreshSphere1ToPing()">Refresh Slots to Ping</button>
+            <div id="sphere1-incomplete-slots">
+                Slots that haven't finished their Sphere 1 checks:
                 <ul>
                     Loading
                 </ul>

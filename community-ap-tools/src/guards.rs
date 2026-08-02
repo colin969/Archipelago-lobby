@@ -50,7 +50,7 @@ pub struct MergedSlotInfo {
     pub last_activity: Option<f64>,
     pub lobby_slot_id: Uuid,
     pub discord_handle: String,
-    pub discord_id: i64,
+    pub discord_id: String,
     pub has_patch: bool,
     pub password: Option<String>,
     pub incomplete_sphere1: bool,

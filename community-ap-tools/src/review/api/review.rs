@@ -472,7 +472,7 @@ async fn get_tracker_info(
                 last_activity: slot.last_activity,
                 lobby_slot_id: yaml.id,
                 discord_handle: yaml.discord_handle.clone(),
-                discord_id: yaml.discord_id,
+                discord_id: yaml.discord_id.to_string(),
                 has_patch: yaml.has_patch,
                 password,
             }
