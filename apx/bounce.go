@@ -5,10 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"maps"
 	"math/rand/v2"
 	"slices"
 	"sync"
+	"time"
 )
+
+// 2 Second cooldown to help prevent double-deaths
+const deathlinkThrottle = 2 * time.Second
 
 type bounceInfoStore struct {
 	mu sync.RWMutex
@@ -18,7 +23,8 @@ type bounceInfoStore struct {
 	deathlinkProbability float64
 	// Slots that aren't allowed to send certain tags
 	// Absurd typing, but should be O(1) because it's all keys in a map, fite me
-	excluded map[int]map[string]struct{}
+	excluded      map[int]map[string]struct{}
+	lastDeathlink time.Time
 }
 
 func newBounceInfoStore() *bounceInfoStore {
@@ -26,6 +32,8 @@ func newBounceInfoStore() *bounceInfoStore {
 		counts:               make(map[int]int),
 		deathlinkProbability: 1,
 		excluded:             make(map[int]map[string]struct{}),
+		// Why is Sub a duration by Add a time?
+		lastDeathlink: time.Now().Add(-deathlinkThrottle),
 	}
 }
 
@@ -33,9 +41,7 @@ func (ds *bounceInfoStore) Get() map[int]int {
 	ds.mu.RLock()
 	defer ds.mu.RUnlock()
 	result := make(map[int]int, len(ds.counts))
-	for k, v := range ds.counts {
-		result[k] = v
-	}
+	maps.Copy(result, ds.counts)
 	return result
 }
 
@@ -89,6 +95,16 @@ func (ds *bounceInfoStore) IsExcluded(slotId int, tag string) bool {
 	defer ds.mu.RUnlock()
 	_, ok := ds.excluded[slotId][tag]
 	return ok
+}
+
+func (ds *bounceInfoStore) CanSendDeathlink(now time.Time) bool {
+	ds.mu.Lock()
+	defer ds.mu.Unlock()
+	if now.Sub(ds.lastDeathlink) < deathlinkThrottle {
+		return false
+	}
+	ds.lastDeathlink = now
+	return true
 }
 
 // Add to the slot's deathlink count
@@ -152,6 +168,11 @@ func (s apxServer) handleDeathLink(ctx context.Context, connState *connectionSta
 	probability := s.bounceInfo.GetProbability()
 	if probability != 1 && rand.Float64() >= probability {
 		log.Println("deathlink dropped by probability func")
+		return nil
+	}
+
+	if !s.bounceInfo.CanSendDeathlink(time.Now()) {
+		log.Println("deathlink dropped by cooldown")
 		return nil
 	}
 
