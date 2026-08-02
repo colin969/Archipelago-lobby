@@ -42,11 +42,11 @@ type apxServer struct {
 	logf         func(f string, v ...any)
 	config       *Config
 	roomInfo     RoomInfoMessage
-	roomPlayers  RoomPlayers // Immutable
+	roomPlayers  *RoomPlayers // Immutable
 	passwords    *passwordStore
 	bounceInfo   *bounceInfoStore
 	connections  *connectionRegistry
-	datapackages *datapackageCache
+	datapackages *DataPackageStore
 }
 
 // No strict lock, but this MUST be immutable to be safe

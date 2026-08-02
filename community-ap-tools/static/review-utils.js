@@ -48,6 +48,140 @@ function confirmDelete(name, callback) {
     dialog.showModal();
 }
 
+function createChecksTable(tableId, slotId, sphereSidebar)
+{
+    const buildTableData = function (url, params, response) {
+        let rows = [];
+
+        // Populate sidebar
+        if (sphereSidebar) {
+            // Clear previous entries except the title
+            while (sphereSidebar.children.length > 1) {
+                sphereSidebar.removeChild(sphereSidebar.lastChild);
+            }
+            for (let i = 0; i < response.length; i++) {
+                const sphere = response[i];
+                const entry = document.createElement("div");
+                entry.style.marginBottom = "0.25rem";
+                entry.style.padding = "0.25rem";
+                entry.style.borderBottom = "1px solid #444";
+
+                const checkedCount = sphere.checked ?? 0;
+                const total = sphere.total ?? sphere.locations.length;
+                const allDone = checkedCount === total;
+
+                entry.innerText = `Sphere ${i + 1}: ${checkedCount}/${total}`;
+                entry.style.color = allDone ? "lightgreen" : "white";
+                sphereSidebar.appendChild(entry);
+            }
+        }
+
+        for (let i = 0; i < response.length; i++)
+        {
+            const sphere = response[i];
+            for (const location of sphere.locations)
+            {
+                rows.push({
+                    sphere: i + 1,
+                    id: location[0],
+                    location: location[1],
+                    checked: location[2]
+                });
+            }
+        }
+        return rows;
+    }
+
+    const table = new Tabulator(tableId, {
+        ajaxURL: "/api/spheres/" + slotId,
+        ajaxResponse: buildTableData,
+        height: "100%",
+        layout: "fitDataStretch",
+        initialSort: [
+            { column: "Sphere", dir: "asc" },
+            { column: "Location", dir: "asc"}
+        ],
+        columns: [
+            { title: "Sphere", field: "sphere" },
+            { title: "Location", field: "location", headerFilter: "input" },
+            { title: "Checked", field: "checked", formatter: "tickCross" }
+        ]
+    });
+
+    return table;
+}
+
+function createAllChecksTable(tableId, sphereSidebar) {
+    const buildTableData = function (url, params, response) {
+        const rows = [];
+
+        if (sphereSidebar) {
+            while (sphereSidebar.children.length > 1) {
+                sphereSidebar.removeChild(sphereSidebar.lastChild);
+            }
+
+            // Aggregate all slots' spheres by sphere index
+            const sphereCount = Math.max(
+                ...Object.values(response).map(spheres => spheres.length),
+                0
+            );
+
+            for (let i = 0; i < sphereCount; i++) {
+                let checked = 0;
+                let total = 0;
+                for (const spheres of Object.values(response)) {
+                    if (i < spheres.length) {
+                        checked += spheres[i].checked ?? 0;
+                        total += spheres[i].total ?? spheres[i].locations.length;
+                    }
+                }
+
+                const entry = document.createElement("div");
+                entry.style.marginBottom = "0.25rem";
+                entry.style.padding = "0.25rem";
+                entry.style.borderBottom = "1px solid #444";
+                entry.innerText = `Sphere ${i + 1}: ${checked}/${total}`;
+                entry.style.color = checked === total ? "lightgreen" : "white";
+                sphereSidebar.appendChild(entry);
+            }
+        }
+
+        for (const [slotName, spheres] of Object.entries(response)) {
+            for (let i = 0; i < spheres.length; i++) {
+                for (const location of spheres[i].locations) {
+                    rows.push({
+                        sphere: i + 1,
+                        slot: slotName,
+                        id: location[0],
+                        location: location[1],
+                        checked: location[2],
+                    });
+                }
+            }
+        }
+        return rows;
+    };
+
+    return new Tabulator(tableId, {
+        ajaxURL: "/api/spheres",
+        ajaxResponse: buildTableData,
+        height: "100%",
+        layout: "fitDataStretch",
+        initialSort: [
+            { column: "Sphere", dir: "asc" },
+            { column: "Slot", dir: "asc" },
+            { column: "Location", dir: "asc" },
+        ],
+        columns: [
+            { title: "Sphere",   field: "sphere" },
+            { title: "Slot",     field: "slot",     headerFilter: "list", headerFilterParams: { valuesLookup: true, clearable: true, sort: "asc" } },
+            { title: "Location", field: "location", headerFilter: "input" },
+            { title: "Checked",  field: "checked",  formatter: "tickCross" },
+        ],
+    });
+}
+
+
 function createTrackerTable(tableId)
 {
     const statusFormatter = function (cell, formatterParams) {
@@ -138,6 +272,13 @@ function createTrackerTable(tableId)
         persistence: true,
         rowContextMenu: [
             {
+                label: "View Checks",
+                action: function (event, row) {
+                    const { id, name } = row.getData();
+                    openChecksTable(id, name);
+                }
+            },
+            {
                 label: "Password",
                 action: function (event, row) {
                     const { lobby_slot_id, name, password } = row.getData();
@@ -209,6 +350,9 @@ function createTrackerTable(tableId)
             }, formatter: checksPercentFormatter, sorter: checksPercentSorter, bottomCalc: checksCalc, bottomCalcFormatter: checksPercentFormatter },
             { title: "Last Active", field: "last_activity", formatter: lastActivityFormatter, sorter: lastActivitySorter },
             { title: "Discord Handle", field: "discord_handle", cellClick: onDiscordHandleClick, headerFilter: "input" },
+            { title: "S1", field: "incomplete_sphere1", mutator: function (value, data) {
+                return !data.incomplete_sphere1;
+            }, hozAlign: "center", formatter: "tickCross" }, 
             { title: "Deaths Allowed", field: "death_allowed", mutator: function (value, data) {
                 return !data.deathlink_excluded;
             }, hozAlign: "center", formatter: "tickCross" },

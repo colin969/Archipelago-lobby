@@ -38,7 +38,7 @@ func (s apxServer) handleConnect(ctx context.Context, connState *connectionState
 
 	// Lobby enabled, enforce lobby passwords
 	if s.config.LobbyEnabled {
-		slotEntry, ok := s.roomPlayers[msg.Name]
+		slotEntry, ok := s.roomPlayers.auth[msg.Name]
 		if !ok {
 			errorMsg := ConnectionRefusedMessage{
 				Cmd:    "ConnectionRefused",

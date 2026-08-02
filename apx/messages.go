@@ -1,5 +1,10 @@
 package main
 
+import (
+	"encoding/json"
+	"fmt"
+)
+
 const (
 	MessageTypeConnect        MessageType = "Connect"
 	MessageTypeConnectUpdate  MessageType = "ConnectUpdate"
@@ -91,6 +96,57 @@ type NetworkSlot struct {
 	Game         string `json:"game"`
 	Type         int    `json:"type"`
 	GroupMembers []int  `json:"group_members"`
+}
+
+type NetworkSlotArray struct {
+	Name         string `json:"name"`
+	Game         string `json:"game"`
+	Type         int    `json:"type"`
+	GroupMembers []int  `json:"group_members"`
+}
+
+func (ns *NetworkSlotArray) UnmarshalJSON(data []byte) error {
+	var raw [4]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	name, ok := raw[0].(string)
+	if !ok {
+		return fmt.Errorf("NetworkSlot[0] name: expected string, got %T", raw[0])
+	}
+
+	game, ok := raw[1].(string)
+	if !ok {
+		return fmt.Errorf("NetworkSlot[1] game: expected string, got %T", raw[1])
+	}
+
+	slotType, ok := raw[2].(float64)
+	if !ok {
+		return fmt.Errorf("NetworkSlot[2] type: expected number, got %T", raw[2])
+	}
+
+	var groupMembers []int
+	if raw[3] != nil {
+		members, ok := raw[3].([]any)
+		if !ok {
+			return fmt.Errorf("NetworkSlot[3] group_members: expected array, got %T", raw[3])
+		}
+		groupMembers = make([]int, len(members))
+		for i, m := range members {
+			f, ok := m.(float64)
+			if !ok {
+				return fmt.Errorf("NetworkSlot[3][%d]: expected number, got %T", i, m)
+			}
+			groupMembers[i] = int(f)
+		}
+	}
+
+	ns.Name = name
+	ns.Game = game
+	ns.Type = int(slotType)
+	ns.GroupMembers = groupMembers
+	return nil
 }
 
 type NetworkVersion struct {

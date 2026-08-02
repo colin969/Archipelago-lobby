@@ -53,6 +53,7 @@ pub struct MergedSlotInfo {
     pub discord_id: i64,
     pub has_patch: bool,
     pub password: Option<String>,
+    pub incomplete_sphere1: bool,
     pub deathlinks_sent: i32,
     pub deathlink_excluded: bool,
 }

@@ -177,6 +177,26 @@ async fn fetch_exclusions(config: &Config) -> crate::error::Result<HashMap<usize
     Ok(data.0)
 }
 
+async fn fetch_incomplete_sphere1s(config: &Config) -> crate::error::Result<Vec<usize>> {
+    let apx_api_root = config
+        .apx_api_root
+        .as_ref()
+        .ok_or_else(|| anyhow!("APX API not configured"))?;
+    let apx_api_key = config
+        .apx_api_key
+        .as_ref()
+        .ok_or_else(|| anyhow!("APX API key not configured"))?;
+
+    let client = reqwest::Client::new();
+    let response = client
+        .get(format!("{}/api/incomplete_sphere1", apx_api_root))
+        .header("X-API-Key", apx_api_key)
+        .send()
+        .await?;
+
+    Ok(response.json().await?)
+}
+
 #[rocket::get("/deathlinks")]
 async fn deathlinks(
     _session: LoggedInSession,

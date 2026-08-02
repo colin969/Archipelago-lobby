@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::time::Instant;
 
 use anyhow::anyhow;
@@ -8,7 +9,7 @@ use rocket::{State, routes, serde::json::Json};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{Config, TRACKER_CACHE_TTL, TrackerInfoCache, fetch_deathlinks, fetch_exclusions};
+use crate::{Config, TRACKER_CACHE_TTL, TrackerInfoCache, fetch_deathlinks, fetch_exclusions, fetch_incomplete_sphere1s};
 use crate::auth::{AdminSession, LoggedInSession};
 use crate::error;
 use crate::guards::{ApRoom, LobbyRoom, SlotPasswords, MergedSlotInfo};
@@ -443,6 +444,11 @@ async fn get_tracker_info(
     let room_id = lobby_room.id.to_string();
     let deathlinks = fetch_deathlinks(config, &room_id).await.unwrap_or_default();
     let exclusions = fetch_exclusions(config).await.unwrap_or_default();
+    let incomplete_sphere1s: HashSet<usize> = fetch_incomplete_sphere1s(config)    
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
     let deathlink_tag = String::from("DeathLink");
 
     let slots: Vec<MergedSlotInfo> = ap_room
@@ -457,6 +463,7 @@ async fn get_tracker_info(
                 // It's moved for `name:` later, feels stupid but it works to put this line higher
                 deathlinks_sent: *deathlinks.get(&slot.id).unwrap_or(&0),
                 deathlink_excluded: exclusions.get(&slot.id).map_or(false, |slots| slots.contains(&deathlink_tag)),
+                incomplete_sphere1: incomplete_sphere1s.contains(&slot.id),
                 id: slot.id,
                 name: slot.name,
                 game: slot.game,
@@ -479,6 +486,67 @@ async fn get_tracker_info(
     Ok(Json(slots))
 }
 
+#[rocket::get("/spheres")]
+async fn get_all_spheres(
+    _session: LoggedInSession,
+    config: &State<Config>,
+) -> crate::error::Result<Json<serde_json::Value>> {
+    let apx_api_root = config
+        .apx_api_root
+        .as_ref()
+        .ok_or_else(|| anyhow!("APX API not configured"))?;
+    let apx_api_key = config
+        .apx_api_key
+        .as_ref()
+        .ok_or_else(|| anyhow!("APX API key not configured"))?;
+
+    let client = reqwest::Client::new();
+    let url = format!("{}/api/spheres", apx_api_root);
+    let resp = client
+        .get(&url)
+        .header("X-API-Key", apx_api_key)
+        .send()
+        .await?;
+
+    if !resp.status().is_success() {
+        return Err(anyhow!("Failed to fetch all spheres: {}", resp.status()).into());
+    }
+
+    let data: serde_json::Value = resp.json().await?;
+    Ok(Json(data))
+}
+
+#[rocket::get("/spheres/<slot_id>")]
+async fn get_slot_spheres(
+    _session: LoggedInSession,
+    slot_id: i32,
+    config: &State<Config>,
+) -> crate::error::Result<Json<serde_json::Value>> {
+    let apx_api_root = config
+        .apx_api_root
+        .as_ref()
+        .ok_or_else(|| anyhow!("APX API not configured"))?;
+    let apx_api_key = config
+        .apx_api_key
+        .as_ref()
+        .ok_or_else(|| anyhow!("APX API key not configured"))?;
+
+    let client = reqwest::Client::new();
+    let url = format!("{}/api/spheres/{}", apx_api_root, slot_id);
+    let resp = client
+        .get(&url)
+        .header("X-API-Key", apx_api_key)
+        .send()
+        .await?;
+
+    if !resp.status().is_success() {
+        return Err(anyhow!("Failed to fetch spheres: {}", resp.status()).into());
+    }
+
+    let data: serde_json::Value = resp.json().await?;
+    Ok(Json(data))
+}
+
 pub fn routes() -> Vec<rocket::Route> {
     routes![
         get_room_preset,
@@ -495,5 +563,7 @@ pub fn routes() -> Vec<rocket::Route> {
         add_note,
         delete_note,
         get_tracker_info,
+        get_slot_spheres,
+        get_all_spheres,
     ]
 }

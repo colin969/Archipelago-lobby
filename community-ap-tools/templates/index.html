@@ -121,6 +121,7 @@ td {
                 <a href="{{ lobby_root_url}}room/{{lobby_room_id}}"><button>Ionium Lobby</button></a>
                 <a href="/deathlinks"><button>Deathlink Settings</button></a>
                 <button onclick="genAllPasswords()">Generate Passwords</button>
+                <button onclick="openAllChecksTable()">View All Checks</button>
             </div>
 
             <div class="review-table-wrapper">
@@ -452,6 +453,100 @@ td {
             popup.appendChild(title)
             popup.appendChild(form)
             discordIdInput.focus()
+        }
+
+        function openChecksTable(slotId, slotName) {
+            const popup = getPopup();
+            popup.style.width = "80vw";
+            popup.style.height = "80vh";
+            popup.style.display = "flex";
+            popup.style.flexDirection = "column";
+
+            const title = h("div", { className: "popup-title" }, `Checks for ${slotName}`);
+
+            // Table on left, stats on right
+            const contentRow = document.createElement("div");
+            contentRow.style.display = "flex";
+            contentRow.style.flex = "1";
+            contentRow.style.minHeight = "0";
+            contentRow.style.marginTop = "0.5rem";
+            contentRow.style.gap = "0.5rem";
+
+            const tableContainer = document.createElement("div");
+            tableContainer.style.flex = "1";
+            tableContainer.style.minHeight = "0";
+            tableContainer.id = `checks-table-${slotId}`;
+
+            const sphereSidebar = document.createElement("div");
+            sphereSidebar.id = `sphere-sidebar-${slotId}`;
+            sphereSidebar.style.width = "200px";
+            sphereSidebar.style.overflowY = "auto";
+            sphereSidebar.style.border = "1px solid white";
+            sphereSidebar.style.padding = "0.5rem";
+            sphereSidebar.style.fontSize = "0.85em";
+
+            const sidebarTitle = document.createElement("div");
+            sidebarTitle.innerText = "Spheres";
+            sidebarTitle.style.fontWeight = "bold";
+            sidebarTitle.style.marginBottom = "0.5rem";
+            sphereSidebar.appendChild(sidebarTitle);
+
+            contentRow.appendChild(tableContainer);
+            contentRow.appendChild(sphereSidebar);
+
+            popup.appendChild(title);
+            popup.appendChild(contentRow);
+
+            // Give it a frame for dom to update
+            requestAnimationFrame(() => {
+                createChecksTable(`#checks-table-${slotId}`, slotId, sphereSidebar);
+            });
+        }
+
+        function openAllChecksTable() {
+            const popup = getPopup();
+            popup.style.width = "90vw";
+            popup.style.height = "90vh";
+            popup.style.display = "flex";
+            popup.style.flexDirection = "column";
+
+            const title = h("div", { className: "popup-title" }, "All Checks");
+
+            const contentRow = document.createElement("div");
+            contentRow.style.display = "flex";
+            contentRow.style.flex = "1";
+            contentRow.style.minHeight = "0";
+            contentRow.style.marginTop = "0.5rem";
+            contentRow.style.gap = "0.5rem";
+
+            const tableContainer = document.createElement("div");
+            tableContainer.style.flex = "1";
+            tableContainer.style.minHeight = "0";
+            tableContainer.id = "all-checks-table";
+
+            const sphereSidebar = document.createElement("div");
+            sphereSidebar.id = `sphere-sidebar`;
+            sphereSidebar.style.width = "200px";
+            sphereSidebar.style.minHeight = "0";
+            sphereSidebar.style.overflowY = "auto";
+            sphereSidebar.style.border = "1px solid white";
+            sphereSidebar.style.padding = "0.5rem";
+            sphereSidebar.style.fontSize = "0.85em";
+
+            const sidebarTitle = document.createElement("div");
+            sidebarTitle.innerText = "Spheres";
+            sidebarTitle.style.fontWeight = "bold";
+            sidebarTitle.style.marginBottom = "0.5rem";
+            sphereSidebar.appendChild(sidebarTitle);
+
+            contentRow.appendChild(tableContainer);
+            contentRow.appendChild(sphereSidebar);
+            popup.appendChild(title);
+            popup.appendChild(contentRow);
+
+            requestAnimationFrame(() => {
+                createAllChecksTable("#all-checks-table", sphereSidebar);
+            });
         }
 
         function getPopup() {

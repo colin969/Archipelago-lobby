@@ -41,9 +41,9 @@ func fetchSlotPasswords(cfg *Config) ([]SlotPasswordInfo, error) {
 	return slots, nil
 }
 
-func loadPasswordsIntoStore(connections *connectionRegistry, store *passwordStore, roomPlayers RoomPlayers, slots []SlotPasswordInfo) {
+func loadPasswordsIntoStore(connections *connectionRegistry, store *passwordStore, roomPlayers *RoomPlayers, slots []SlotPasswordInfo) {
 	for _, slot := range slots {
-		slotEntry, ok := roomPlayers[slot.PlayerName]
+		slotEntry, ok := roomPlayers.auth[slot.PlayerName]
 		if ok && slot.Password != nil && *slot.Password != "" {
 			current, ok := store.Get(slotEntry[1])
 			store.Set(slotEntry[1], *slot.Password)

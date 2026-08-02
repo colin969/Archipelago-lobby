@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
@@ -30,30 +29,52 @@ type DataPackageObject struct {
 	Games map[string]GameData `json:"games"`
 }
 
-type datapackageCache struct {
-	mu       sync.RWMutex
-	packages map[string]GameData // keyed by game name
-	fetchSem chan struct{}       // semaphore: buffer of 1
+// Immutable
+type DataPackageStore struct {
+	packages         map[string]GameData         // keyed by game name
+	ItemIDToName     map[string]map[int64]string // game -> id -> name
+	LocationIDToName map[string]map[int64]string // game -> id -> name
 }
 
-func newDatapackageCache() *datapackageCache {
-	return &datapackageCache{
-		packages: make(map[string]GameData),
-		fetchSem: make(chan struct{}, 1),
+func newDataPackageStore() *DataPackageStore {
+	return &DataPackageStore{
+		packages:         make(map[string]GameData),
+		ItemIDToName:     make(map[string]map[int64]string),
+		LocationIDToName: make(map[string]map[int64]string),
 	}
 }
 
-func (dc *datapackageCache) Get(game string) (GameData, bool) {
-	dc.mu.RLock()
-	defer dc.mu.RUnlock()
-	gd, ok := dc.packages[game]
-	return gd, ok
+func (ds *DataPackageStore) AddDataPackage(game string, gd GameData) {
+	ds.packages[game] = gd
+
+	// Populate global item id to name
+	itemIDToName := make(map[int64]string, len(gd.ItemNameToID))
+	for name, id := range gd.ItemNameToID {
+		itemIDToName[id] = name
+	}
+	ds.ItemIDToName[game] = itemIDToName
+
+	// Populate global location id to name
+	locationIDToName := make(map[int64]string, len(gd.LocationNameToID))
+	for name, id := range gd.LocationNameToID {
+		locationIDToName[id] = name
+	}
+	ds.LocationIDToName[game] = locationIDToName
 }
 
-func (dc *datapackageCache) Set(game string, gd GameData) {
-	dc.mu.Lock()
-	defer dc.mu.Unlock()
-	dc.packages[game] = gd
+// MUST be called before server is live to other users. CANNOT be called safely after.
+func (s apxServer) prefetchDataPackages(ctx context.Context) error {
+	for game := range s.roomInfo.DatapackageChecksums {
+		if _, ok := s.datapackages.packages[game]; ok {
+			continue // already cached
+		}
+		gd, err := s.fetchDataPackageFromAPServer(ctx, game)
+		if err != nil {
+			return fmt.Errorf("prefetching datapackage for %q: %w", game, err)
+		}
+		s.datapackages.AddDataPackage(game, gd)
+	}
+	return nil
 }
 
 func (s apxServer) handleGetDataPackage(ctx context.Context, connState *connectionState, raw map[string]any) error {
@@ -91,21 +112,6 @@ func (s apxServer) handleGetDataPackage(ctx context.Context, connState *connecti
 }
 
 func (s apxServer) fetchDataPackageFromAPServer(ctx context.Context, game string) (GameData, error) {
-	// For the sake of being local, we'll just ignore checksums for now
-
-	// Semaphore to only fetch 1 at a time, prevent issues with max packet size
-	select {
-	case s.datapackages.fetchSem <- struct{}{}:
-	case <-ctx.Done():
-		return GameData{}, ctx.Err()
-	}
-	defer func() { <-s.datapackages.fetchSem }()
-
-	// Check cache again after acquiring semaphore (another client may have called a goroutine that's fetched it)
-	if gd, ok := s.datapackages.Get(game); ok {
-		return gd, nil
-	}
-
 	apConn, _, err := websocket.Dial(ctx, fmt.Sprintf("ws://%s:%d", s.config.APHost, s.config.APPort), nil)
 	if err != nil {
 		return GameData{}, fmt.Errorf("dialing upstream: %w", err)
@@ -113,7 +119,6 @@ func (s apxServer) fetchDataPackageFromAPServer(ctx context.Context, game string
 	defer apConn.CloseNow()
 	apConn.SetReadLimit(1 << 24)
 
-	// We don't actually care about the initial message, we just do basic validation here
 	var roomInfo []map[string]any
 	if err := wsjson.Read(ctx, apConn, &roomInfo); err != nil {
 		return GameData{}, fmt.Errorf("reading RoomInfo: %w", err)
@@ -128,7 +133,7 @@ func (s apxServer) fetchDataPackageFromAPServer(ctx context.Context, game string
 
 	var responses []map[string]any
 	if err := wsjson.Read(ctx, apConn, &responses); err != nil {
-		return GameData{}, fmt.Errorf("reading DataPackage response for '%s' (may be too large): %w", game, err)
+		return GameData{}, fmt.Errorf("reading DataPackage response for %q (may be too large): %w", game, err)
 	}
 
 	for _, resp := range responses {
@@ -155,14 +160,9 @@ func (s apxServer) sendDataPackages(ctx context.Context, client *websocket.Conn,
 	result := DataPackageObject{Games: make(map[string]GameData)}
 
 	for _, game := range games {
-		gd, ok := s.datapackages.Get(game)
+		gd, ok := s.datapackages.packages[game]
 		if !ok {
-			fetched, err := s.fetchDataPackageFromAPServer(ctx, game)
-			if err != nil {
-				return fmt.Errorf("fetching datapackage for %q: %w", game, err)
-			}
-			s.datapackages.Set(game, fetched)
-			gd = fetched
+			return fmt.Errorf("unknown datapackage for %q", game)
 		}
 		result.Games[game] = gd
 	}

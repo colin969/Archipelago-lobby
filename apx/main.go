@@ -50,7 +50,7 @@ func run() error {
 
 	roomPlayers, err := fetchRoomPlayers(cfg.ApApiRoot, cfg.ApRoomId)
 	if err != nil {
-		return fmt.Errorf("failed to get %s/api/room_players/%s from AP server, aborting: %w", cfg.ApApiRoot, cfg.ApRoomId, err)
+		return fmt.Errorf("failed to get %s/api/room/%s/players from AP server, aborting: %w", cfg.ApApiRoot, cfg.ApRoomId, err)
 	}
 
 	roomInfo, err := connectAndGetRoomInfo(cfg.APHost, cfg.APPort)
@@ -76,7 +76,7 @@ func run() error {
 
 	passwordStore := newPasswordStore()
 	connRegistry := newConnectionRegistry()
-	datapackageCache := newDatapackageCache()
+	datapackageCache := newDataPackageStore()
 	bounceInfo := newBounceInfoStore()
 	if cfg.LobbyEnabled {
 		slots, err := fetchSlotPasswords(cfg)
@@ -85,8 +85,6 @@ func run() error {
 		}
 		loadPasswordsIntoStore(connRegistry, passwordStore, roomPlayers, slots)
 	}
-
-	startApiServer(cfg, passwordStore, bounceInfo, connRegistry, roomPlayers)
 
 	srv := apxServer{
 		logf:         log.Printf,
@@ -98,6 +96,12 @@ func run() error {
 		bounceInfo:   bounceInfo,
 		datapackages: datapackageCache,
 	}
+
+	if err := srv.prefetchDataPackages(context.Background()); err != nil {
+		log.Fatalf("prefetching datapackages: %v", err)
+	}
+
+	startApiServer(cfg, &srv)
 
 	// Normal traffic
 	normalServer := &http.Server{
@@ -262,10 +266,13 @@ func connectAndGetRoomInfo(apHost string, apPort int) (*RoomInfoMessage, error) 
 	return nil, errors.New("no RoomInfo packet received in initial message")
 }
 
-type RoomPlayers map[string][2]int
+type RoomPlayers struct {
+	slots map[int]NetworkSlotArray
+	auth  map[string][2]int
+}
 
-func fetchRoomPlayers(apApiRoot string, apRoomId string) (RoomPlayers, error) {
-	url := fmt.Sprintf("%s/api/room_players/%s", apApiRoot, apRoomId)
+func fetchRoomPlayers(apApiRoot string, apRoomId string) (*RoomPlayers, error) {
+	url := fmt.Sprintf("%s/api/room/%s/players", apApiRoot, apRoomId)
 
 	resp, err := http.Get(url)
 	if err != nil {
@@ -274,13 +281,35 @@ func fetchRoomPlayers(apApiRoot string, apRoomId string) (RoomPlayers, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status %d from /api/room_players", resp.StatusCode)
+		return nil, fmt.Errorf("unexpected status %d from /api/room/%s/players", resp.StatusCode, apRoomId)
 	}
 
-	var raw map[string][2]int
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+	var roomPlayers RoomPlayers
+	if err := json.NewDecoder(resp.Body).Decode(&roomPlayers); err != nil {
 		return nil, fmt.Errorf("decoding room players: %w", err)
 	}
 
-	return RoomPlayers(raw), nil
+	return &roomPlayers, nil
+}
+
+func (rp *RoomPlayers) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Slots map[string]NetworkSlotArray `json:"slots"`
+		Auth  map[string][2]int           `json:"auth"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	rp.slots = make(map[int]NetworkSlotArray, len(raw.Slots))
+	for k, v := range raw.Slots {
+		id, err := strconv.Atoi(k)
+		if err != nil {
+			return fmt.Errorf("invalid slot id %q: %w", k, err)
+		}
+		rp.slots[id] = v
+	}
+
+	rp.auth = raw.Auth
+	return nil
 }
