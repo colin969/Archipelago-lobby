@@ -71,6 +71,10 @@ pub struct RoomInfo {
     yamls: Vec<YamlInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     server_info: Option<RoomServerInfo>,
+    /// Omitted unless the caller may see it (admin token, the room's author, or a user with a YAML
+    /// in the room), and omitted when the organizer hasn't set one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    room_url: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -135,10 +139,10 @@ pub(crate) async fn list_open_rooms(
 }
 
 #[get("/room/<room_id>")]
-#[tracing::instrument(skip(_session, ctx))]
+#[tracing::instrument(skip(session, ctx))]
 pub(crate) async fn room_info(
     room_id: RoomId,
-    _session: LoggedInSession,
+    session: LoggedInSession,
     ctx: &State<Context>,
 ) -> ApiResult<Json<RoomInfo>> {
     let mut conn = ctx.db_pool.get().await?;
@@ -156,6 +160,15 @@ pub(crate) async fn room_info(
         .enumerate()
         .map(|(index, (_, id))| (*id, index))
         .collect();
+
+    // Same rule as the room page (`views/room/main.rs`): the room URL is visible to an admin (which
+    // includes an `X-Api-Key` caller), to the room's author, and to anyone with a YAML in the room.
+    // An admin-token session has no `user_id`, so don't go through `session.user_id()` here.
+    let is_my_room = session.0.is_admin || session.0.user_id == Some(room.settings.author_id);
+    let user_has_yaml = yamls
+        .iter()
+        .any(|(yaml, _)| Some(yaml.owner_id) == session.0.user_id);
+    let can_see_room_url = is_my_room || user_has_yaml;
 
     Ok(Json(RoomInfo {
         id: room.id,
@@ -181,6 +194,7 @@ pub(crate) async fn room_info(
             host: info.host,
             port: info.port,
         }),
+        room_url: Some(room.settings.room_url).filter(|url| can_see_room_url && !url.is_empty()),
     }))
 }
 
@@ -820,7 +834,10 @@ mod tests {
             extract_hashtags("sign up here #mclabsync #weekly"),
             vec!["mclabsync", "weekly"]
         );
-        assert_eq!(extract_hashtags("#MCLabSync and #mclabsync"), vec!["mclabsync"]);
+        assert_eq!(
+            extract_hashtags("#MCLabSync and #mclabsync"),
+            vec!["mclabsync"]
+        );
         assert_eq!(extract_hashtags("no tags here"), Vec::<String>::new());
         assert_eq!(extract_hashtags(""), Vec::<String>::new());
         assert_eq!(extract_hashtags("#b comes #a first"), vec!["b", "a"]);
@@ -830,7 +847,13 @@ mod tests {
         );
         assert_eq!(extract_hashtags("mid#word"), Vec::<String>::new());
         assert_eq!(extract_hashtags("#start of string"), vec!["start"]);
-        assert_eq!(extract_hashtags("tab\t#tag and\n#newline"), vec!["tag", "newline"]);
-        assert_eq!(extract_hashtags("(#parens) and text.#dot"), vec!["parens", "dot"]);
+        assert_eq!(
+            extract_hashtags("tab\t#tag and\n#newline"),
+            vec!["tag", "newline"]
+        );
+        assert_eq!(
+            extract_hashtags("(#parens) and text.#dot"),
+            vec!["parens", "dot"]
+        );
     }
 }
