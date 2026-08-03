@@ -420,13 +420,17 @@ async fn delete_note(
 
 #[rocket::get("/tracker_info")]
 async fn get_tracker_info(
-    _session: LoggedInSession,
+    session: LoggedInSession,
     ap_room: ApRoom,
     lobby_room: LobbyRoom,
     slot_passwords: SlotPasswords,
     config: &State<Config>,
     cache: &State<TrackerInfoCache>,
+    pool: &State<DieselPool<AsyncPgConnection>>,
 ) -> crate::error::Result<Json<Vec<MergedSlotInfo>>> {
+    let mut conn = pool.get().await.map_err(|e| anyhow!(e))?;
+    session.require_room_role(lobby_room.id, Role::Moderator, &mut conn).await?;
+
     // Check cache first
     {
         let lock = cache.0.lock().unwrap();
@@ -488,9 +492,14 @@ async fn get_tracker_info(
 
 #[rocket::get("/spheres")]
 async fn get_all_spheres(
-    _session: LoggedInSession,
+    session: LoggedInSession,
+    lobby_room: LobbyRoom,
     config: &State<Config>,
+    pool: &State<DieselPool<AsyncPgConnection>>,
 ) -> crate::error::Result<Json<serde_json::Value>> {
+    let mut conn = pool.get().await.map_err(|e| anyhow!(e))?;
+    session.require_room_role(lobby_room.id, Role::Moderator, &mut conn).await?;
+
     let apx_api_root = config
         .apx_api_root
         .as_ref()
@@ -518,10 +527,15 @@ async fn get_all_spheres(
 
 #[rocket::get("/spheres/<slot_id>")]
 async fn get_slot_spheres(
-    _session: LoggedInSession,
+    session: LoggedInSession,
     slot_id: i32,
+    lobby_room: LobbyRoom,
     config: &State<Config>,
+    pool: &State<DieselPool<AsyncPgConnection>>,
 ) -> crate::error::Result<Json<serde_json::Value>> {
+    let mut conn = pool.get().await.map_err(|e| anyhow!(e))?;
+    session.require_room_role(lobby_room.id, Role::Moderator, &mut conn).await?;
+
     let apx_api_root = config
         .apx_api_root
         .as_ref()

@@ -39,18 +39,6 @@ redirect_uri = "${_public_url}/auth/oauth"
 admins = [$_admin_id]
 EOF
 
-    # NOTE: community mode keeps a localhost redirect by default since it's
-    # primarily a dev/testing path. Edit Rocket.community.toml manually if
-    # you're running community mode on a public URL.
-    cat > Rocket.community.toml <<EOF
-[default.oauth.discord]
-provider = "Discord"
-client_id = "$_client_id"
-client_secret = "$_client_secret"
-redirect_uri = "http://127.0.0.1:8001/auth/oauth"
-admins = [$_admin_id]
-EOF
-
 fi
 
 # Stop docker compose getting upset when starting services before we've made it later

@@ -187,7 +187,6 @@ services:
       LOBBY_API_KEY: "changeme"
       AP_ROOM_HOST: "ap-webhost"
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/aplobby
-      AP_ROOM_HOST: "http://ap-webhost:9888"
       AP_ADMIN_API_KEY: "ap_changeme"
       APX_API_ROOT: "http://apx:9001"
       APX_API_KEY: "changeme"
@@ -203,6 +202,3 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-
-volumes:
-  app_volume:

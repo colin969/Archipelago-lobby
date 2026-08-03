@@ -16,6 +16,7 @@ pub enum Role {
     Reviewer,
     RuleEditor,
     Editor,
+    Moderator,
     Admin,
 }
 
@@ -26,6 +27,7 @@ impl Role {
             Role::Reviewer => "reviewer",
             Role::RuleEditor => "rule_editor",
             Role::Editor => "editor",
+            Role::Moderator => "moderator",
             Role::Admin => "admin",
         }
     }
@@ -40,6 +42,7 @@ impl FromStr for Role {
             "reviewer" => Ok(Role::Reviewer),
             "rule_editor" => Ok(Role::RuleEditor),
             "editor" => Ok(Role::Editor),
+            "moderator" => Ok(Role::Moderator),
             "admin" => Ok(Role::Admin),
             _ => Err(()),
         }
