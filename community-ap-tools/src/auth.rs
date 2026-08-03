@@ -6,6 +6,7 @@ use diesel_async::AsyncPgConnection;
 use diesel_async::pooled_connection::deadpool::Pool as DieselPool;
 use reqwest::{Url, header::HeaderValue};
 use rocket::figment::{Figment, Profile, Provider, value::Dict};
+use rocket::outcome::try_outcome;
 use rocket::time::ext::NumericalDuration;
 use rocket::{
     Request, State, get,
@@ -136,6 +137,15 @@ impl LoggedInSession {
     }
 }
 
+pub struct ModeratorSession(LoggedInSession);
+
+impl std::ops::Deref for ModeratorSession {
+    type Target = LoggedInSession;
+    fn deref(&self) -> &LoggedInSession {
+        &self.0
+    }
+}
+
 pub struct AdminSession(LoggedInSession);
 
 impl std::ops::Deref for AdminSession {
@@ -166,6 +176,36 @@ impl<'r> FromRequest<'r> for LoggedInSession {
         }
 
         Outcome::Error((Status::Unauthorized, anyhow!("Not logged in").into()))
+    }
+}
+
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for ModeratorSession {
+    type Error = crate::error::Error;
+
+    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        let session = Session::from_request_sync(request);
+        if !session.is_logged_in {
+            return Outcome::Error((Status::Unauthorized, anyhow!("Not logged in").into()));
+        }
+        if session.is_super_admin {
+            return Outcome::Success(ModeratorSession(LoggedInSession(session)));
+        }
+        let logged_in_session = LoggedInSession(session);
+        let config = try_outcome!(request.guard::<&State<crate::Config>>().await
+            .map_error(|(s, _)| (s, anyhow!("Missing config").into())));
+        let pool = try_outcome!(request.guard::<&State<DieselPool<AsyncPgConnection>>>().await
+            .map_error(|(s, _)| (s, anyhow!("Missing pool").into())));
+
+        let mut conn = match pool.get().await {
+            Ok(c) => c,
+            Err(e) => return Outcome::Error((Status::InternalServerError, anyhow!(e).into())),
+        };
+
+        match logged_in_session.require_room_role(config.lobby_room_id, Role::Moderator, &mut conn).await {
+            Ok(_) => Outcome::Success(ModeratorSession(logged_in_session)),
+            Err(e) => Outcome::Error((Status::Forbidden, e)),
+        }
     }
 }
 

@@ -5,9 +5,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, anyhow};
 use askama::Template;
 use askama_web::WebTemplate;
-use auth::{LoggedInSession, Session};
-use diesel_async::AsyncPgConnection;
-use diesel_async::pooled_connection::deadpool::Pool as DieselPool;
+use auth::{ModeratorSession, Session};
 use guards::{ApRoom, DATA_PACKAGE, LobbyRoom, SlotPasswords};
 use reqwest::{
     Url,
@@ -34,7 +32,6 @@ mod schema;
 use diesel_migrations::{EmbeddedMigrations, embed_migrations};
 
 use crate::guards::{MergedSlotInfo, TrackerInfo};
-use crate::review::Role;
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
@@ -103,16 +100,12 @@ fn unauthorized(req: &Request) -> crate::error::Result<Redirect> {
 
 #[rocket::get("/")]
 async fn root_run(
-    session: LoggedInSession,
+    _session: ModeratorSession,
     lobby_room: LobbyRoom,
     ap_room: ApRoom,
     slot_passwords: SlotPasswords,
     config: &State<Config>,
-    pool: &State<DieselPool<AsyncPgConnection>>,
 ) -> crate::error::Result<RunIndexTpl> {
-    let mut conn = pool.get().await.map_err(|e| anyhow!(e))?;
-    session.require_room_role(lobby_room.id, Role::Moderator, &mut conn).await?;
-
     if lobby_room.yamls.len() != ap_room.tracker_info.slots.len() {
         Err(anyhow!(
             "The AP room slot number doesn't match the lobby, this won't work"
@@ -126,18 +119,6 @@ async fn root_run(
     };
 
     Ok(index)
-}
-
-#[rocket::get("/")]
-async fn root(
-    session: LoggedInSession,
-    lobby_room: LobbyRoom,
-    ap_room: ApRoom,
-    slot_passwords: SlotPasswords,
-    config: &State<Config>,
-    pool: &State<DieselPool<AsyncPgConnection>>,
-) -> crate::error::Result<RunIndexTpl> {
-    root_run(session, lobby_room, ap_room, slot_passwords, config, pool).await
 }
 
 async fn fetch_deathlinks(config: &Config, room_id: &str) -> crate::error::Result<HashMap<usize, i32>> {
@@ -203,15 +184,11 @@ async fn fetch_incomplete_sphere1s(config: &Config) -> crate::error::Result<Vec<
 
 #[rocket::get("/deathlinks")]
 async fn deathlinks(
-    session: LoggedInSession,
+    _session: ModeratorSession,
     lobby_room: LobbyRoom,
     ap_room: ApRoom,
     config: &State<Config>,
-    pool: &State<DieselPool<AsyncPgConnection>>,
 ) -> crate::error::Result<DeathlinksIndexTpl> {
-    let mut conn = pool.get().await.map_err(|e| anyhow!(e))?;
-    session.require_room_role(lobby_room.id, Role::Moderator, &mut conn).await?;
-
     let room_id = lobby_room.id.to_string();
 
     let deathlinks = fetch_deathlinks(config, &room_id).await.unwrap_or_default();
@@ -246,17 +223,12 @@ async fn deathlinks(
 
 #[rocket::post("/api/bounce_exclusions/<slot_id>/<tag_name>")]
 async fn proxy_add_exclusion(
-    session: LoggedInSession,
+    _session: ModeratorSession,
     slot_id: i32,
     tag_name: &str,
-    lobby_room: LobbyRoom,
     config: &State<Config>,
     cache: &State<TrackerInfoCache>,
-    pool: &State<DieselPool<AsyncPgConnection>>,
 ) -> crate::error::Result<(rocket::http::Status, rocket::serde::json::Json<serde_json::Value>)> {
-    let mut conn = pool.get().await.map_err(|e| anyhow!(e))?;
-    session.require_room_role(lobby_room.id, Role::Moderator, &mut conn).await?;
-    
     let apx_api_root = config
         .apx_api_root
         .as_ref()
@@ -289,17 +261,12 @@ async fn proxy_add_exclusion(
 
 #[rocket::delete("/api/bounce_exclusions/<slot_id>/<tag_name>")]
 async fn proxy_remove_exclusion(
-    session: LoggedInSession,
+    _session: ModeratorSession,
     slot_id: i32,
     tag_name: &str,
-    lobby_room: LobbyRoom,
     config: &State<Config>,
     cache: &State<TrackerInfoCache>,
-    pool: &State<DieselPool<AsyncPgConnection>>,
 ) -> crate::error::Result<rocket::http::Status> {
-    let mut conn = pool.get().await.map_err(|e| anyhow!(e))?;
-    session.require_room_role(lobby_room.id, Role::Moderator, &mut conn).await?;
-
     let apx_api_root = config
         .apx_api_root
         .as_ref()
@@ -328,7 +295,7 @@ async fn proxy_remove_exclusion(
 
 #[rocket::get("/api/deathlink_probability")]
 async fn get_deathlink_probability(
-    _session: LoggedInSession,
+    _session: ModeratorSession,
     config: &State<Config>,
 ) -> crate::error::Result<Json<ProbabilityResponse>> {
     let apx_api_root = config
@@ -353,7 +320,7 @@ async fn get_deathlink_probability(
 
 #[rocket::post("/api/deathlink_probability", data = "<request>")]
 async fn set_deathlink_probability(
-    _session: LoggedInSession,
+    _session: ModeratorSession,
     config: &State<Config>,
     request: Json<SetProbabilityRequest>,
 ) -> crate::error::Result<Json<ProbabilityResponse>> {
@@ -473,7 +440,7 @@ async fn remove_deferred_datapackage_game(
 
 #[rocket::get("/hint/<ty>/<slot_name>/<item_name>")]
 async fn hint(
-    _session: LoggedInSession,
+    _session: ModeratorSession,
     ty: &str,
     slot_name: &str,
     item_name: &str,
@@ -505,7 +472,7 @@ async fn hint(
 
 #[rocket::get("/give/<ty>/<slot_name>/<item_name>")]
 async fn give(
-    _session: LoggedInSession,
+    _session: ModeratorSession,
     ty: &str,
     slot_name: &str,
     item_name: &str,
@@ -561,7 +528,7 @@ async fn ap_cmd(cmd: String, config: &State<Config>) -> crate::error::Result<()>
 
 #[rocket::get("/release/<slot_name>")]
 async fn release(
-    _session: LoggedInSession,
+    _session: ModeratorSession,
     ap_room: ApRoom,
     slot_name: &str,
     config: &State<Config>,
@@ -587,7 +554,7 @@ async fn release(
 
 #[rocket::get("/completion/<ty>/<game_name>")]
 async fn autocompletion(
-    _session: LoggedInSession,
+    _session: ModeratorSession,
     ty: &str,
     game_name: &str,
 ) -> crate::error::Result<Json<Vec<String>>> {
@@ -651,7 +618,7 @@ struct SetPasswordRequest {
 
 #[rocket::post("/gen_all_passwords")]
 async fn gen_all_passwords(
-    _session: LoggedInSession,
+    _session: ModeratorSession,
     config: &State<Config>,
     cache: &State<TrackerInfoCache>,
 ) -> crate::error::Result<()> {
@@ -687,7 +654,7 @@ async fn gen_all_passwords(
 
 #[rocket::post("/set_password/<yaml_id>", data = "<request>")]
 async fn set_password(
-    _session: LoggedInSession,
+    _session: ModeratorSession,
     yaml_id: &str,
     request: Json<SetPasswordRequest>,
     config: &State<Config>,
@@ -741,7 +708,7 @@ struct ChangeYamlOwnerRequest {
 
 #[rocket::put("/change_owner/<yaml_id>", data = "<request>")]
 async fn change_yaml_owner(
-    _session: LoggedInSession,
+    _session: ModeratorSession,
     yaml_id: &str,
     request: Json<ChangeYamlOwnerRequest>,
     config: &State<Config>,
@@ -863,7 +830,7 @@ async fn main() -> crate::error::Result<()> {
         .mount(
             "/",
             routes![
-                root,
+                root_run,
                 deathlinks,
                 proxy_add_exclusion,
                 proxy_remove_exclusion,

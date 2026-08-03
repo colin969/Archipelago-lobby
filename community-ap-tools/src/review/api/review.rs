@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{Config, TRACKER_CACHE_TTL, TrackerInfoCache, fetch_deathlinks, fetch_exclusions, fetch_incomplete_sphere1s};
-use crate::auth::{AdminSession, LoggedInSession};
+use crate::auth::{AdminSession, LoggedInSession, ModeratorSession};
 use crate::error;
 use crate::guards::{ApRoom, LobbyRoom, SlotPasswords, MergedSlotInfo};
 use crate::review::Role;
@@ -420,17 +420,13 @@ async fn delete_note(
 
 #[rocket::get("/tracker_info")]
 async fn get_tracker_info(
-    session: LoggedInSession,
+    _session: ModeratorSession,
     ap_room: ApRoom,
     lobby_room: LobbyRoom,
     slot_passwords: SlotPasswords,
     config: &State<Config>,
     cache: &State<TrackerInfoCache>,
-    pool: &State<DieselPool<AsyncPgConnection>>,
 ) -> crate::error::Result<Json<Vec<MergedSlotInfo>>> {
-    let mut conn = pool.get().await.map_err(|e| anyhow!(e))?;
-    session.require_room_role(lobby_room.id, Role::Moderator, &mut conn).await?;
-
     // Check cache first
     {
         let lock = cache.0.lock().unwrap();
@@ -492,14 +488,9 @@ async fn get_tracker_info(
 
 #[rocket::get("/spheres")]
 async fn get_all_spheres(
-    session: LoggedInSession,
-    lobby_room: LobbyRoom,
+    _session: ModeratorSession,
     config: &State<Config>,
-    pool: &State<DieselPool<AsyncPgConnection>>,
 ) -> crate::error::Result<Json<serde_json::Value>> {
-    let mut conn = pool.get().await.map_err(|e| anyhow!(e))?;
-    session.require_room_role(lobby_room.id, Role::Moderator, &mut conn).await?;
-
     let apx_api_root = config
         .apx_api_root
         .as_ref()
@@ -527,15 +518,10 @@ async fn get_all_spheres(
 
 #[rocket::get("/spheres/<slot_id>")]
 async fn get_slot_spheres(
-    session: LoggedInSession,
+    _session: ModeratorSession,
     slot_id: i32,
-    lobby_room: LobbyRoom,
     config: &State<Config>,
-    pool: &State<DieselPool<AsyncPgConnection>>,
 ) -> crate::error::Result<Json<serde_json::Value>> {
-    let mut conn = pool.get().await.map_err(|e| anyhow!(e))?;
-    session.require_room_role(lobby_room.id, Role::Moderator, &mut conn).await?;
-
     let apx_api_root = config
         .apx_api_root
         .as_ref()

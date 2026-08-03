@@ -70,7 +70,11 @@ async fn rooms_list(
     let rooms = if session.is_super_admin() {
         db::list_all_rooms(&mut conn).await?
     } else {
-        db::list_user_rooms(session.user_id(), &mut conn).await?
+        let rooms = db::list_user_rooms(session.user_id(), &mut conn).await?;
+        if rooms.is_empty() {
+            return Err(anyhow!("Forbidden").into());
+        }
+        rooms
     };
 
     let base = OrgTplContext::new(&session, "rooms", pool).await?;
@@ -170,6 +174,9 @@ async fn presets_list(
     let mut conn = pool.get().await.map_err(|e| anyhow!(e))?;
     let presets =
         db::list_presets_for_user(session.user_id(), session.is_super_admin(), &mut conn).await?;
+    if presets.is_empty() && !session.is_super_admin() {
+        return Err(anyhow!("Forbidden").into());
+    }
     let base = OrgTplContext::new(&session, "presets", pool).await?;
     Ok(PresetsListTpl { base, presets })
 }
