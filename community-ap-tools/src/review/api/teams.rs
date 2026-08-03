@@ -109,9 +109,9 @@ async fn admin_add_member(
         .role
         .parse()
         .map_err(|_| error::bad_request(format!("Invalid role: {}", req.role)))?;
-    if role >= Role::Admin && !session.is_super_admin() {
+    if role >= Role::Moderator && !session.is_super_admin() {
         return Err(error::forbidden(
-            "Only super admins can assign the admin role",
+            "Only super admins can assign the moderator or admin role",
         ));
     }
     let member = db::add_team_member(

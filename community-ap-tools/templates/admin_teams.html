@@ -51,6 +51,7 @@
                     <option value="rule_editor">Rule Editor</option>
                     <option value="editor">Editor</option>
                     {% if base.is_super_admin %}
+                    <option value="moderator">Moderator</option>
                     <option value="admin">Admin</option>
                     {% endif %}
                 </select>
@@ -149,6 +150,7 @@ async function loadMembers() {
         return;
     }
     const roleOptions = [["viewer", "Viewer"], ["reviewer", "Reviewer"], ["rule_editor", "Rule Editor"], ["editor", "Editor"]];
+    if (IS_SUPER_ADMIN) roleOptions.push(["moderator", "Moderator"]);
     if (IS_SUPER_ADMIN) roleOptions.push(["admin", "Admin"]);
     const rows = members.map(m => {
         const roleSel = selectEl("", roleOptions, m.role);
