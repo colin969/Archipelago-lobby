@@ -82,6 +82,7 @@ pub struct RoomListEntry {
     locked: bool,
     author_id: i64,
     hashtags: Vec<String>,
+    room_url: String,
 }
 
 #[derive(Serialize)]
@@ -126,6 +127,7 @@ pub(crate) async fn list_open_rooms(
             close_date: room.settings.close_date.and_utc().timestamp(),
             locked: room.settings.locked,
             author_id: room.settings.author_id,
+            room_url: room.settings.room_url,
         })
         .collect();
 
