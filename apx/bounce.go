@@ -152,6 +152,17 @@ func (s apxServer) handleDeathLink(ctx context.Context, connState *connectionSta
 		return fmt.Errorf("unmarshalling deathlink data: %w", err)
 	}
 
+	if dl.Time == 0 {
+		// We can't trust their own client will handle a Bounced packet with a real time field, so drop the incoming
+		log.Printf("deathlink malformed: slot=%q cause='bad time field'", *connState.slotName)
+		return nil
+	}
+
+	// For clarity, the Source will always contain slot name unless otherwise given
+	if dl.Source == "" {
+		dl.Source = *connState.slotName
+	}
+
 	s.bounceInfo.Add(connState.registeredClient.slotId)
 	log.Printf("deathlink: slot=%q source=%q cause=%v", *connState.slotName, dl.Source, dl.Cause)
 
@@ -174,6 +185,15 @@ func (s apxServer) handleDeathLink(ctx context.Context, connState *connectionSta
 	if !s.bounceInfo.CanSendDeathlink(time.Now()) {
 		log.Println("deathlink dropped by cooldown")
 		return nil
+	}
+
+	// Put the patched deathlink data back onto the packet
+	modifiedData, err := json.Marshal(dl)
+	if err != nil {
+		return fmt.Errorf("marshalling modified deathlink data: %w", err)
+	}
+	if err := json.Unmarshal(modifiedData, &msg.Data); err != nil {
+		return fmt.Errorf("updating bounce message data: %w", err)
 	}
 
 	s.connections.BroadcastBounceFromSlot(ctx, s.bounceInfo, connState.registeredClient.slotId, msg)
