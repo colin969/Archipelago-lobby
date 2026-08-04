@@ -182,6 +182,39 @@ async fn fetch_incomplete_sphere1s(config: &Config) -> crate::error::Result<Vec<
     Ok(response.json().await?)
 }
 
+#[rocket::get("/api/password/<slot_id>")]
+async fn get_password(
+    _session: ModeratorSession,
+    slot_id: i32,
+    config: &State<Config>,
+) -> crate::error::Result<(rocket::http::Status, rocket::serde::json::Json<serde_json::Value>)> {
+    let apx_api_root = config
+        .apx_api_root
+        .as_ref()
+        .ok_or_else(|| anyhow!("APX API not configured"))?;
+    let apx_api_key = config
+        .apx_api_key
+        .as_ref()
+        .ok_or_else(|| anyhow!("APX API key not configured"))?;
+
+    let client = reqwest::Client::new();
+    let url = format!(
+        "{}api/password/{}",
+        apx_api_root, slot_id
+    );
+    let response = client
+        .get(url)
+        .header("X-API-Key", apx_api_key)
+        .send()
+        .await?;
+
+    let status = rocket::http::Status::from_code(response.status().as_u16())
+        .unwrap_or(rocket::http::Status::InternalServerError);
+    let body: serde_json::Value = response.json().await?;
+
+    Ok((status, rocket::serde::json::Json(body)))
+}
+
 #[rocket::get("/deathlinks")]
 async fn deathlinks(
     _session: ModeratorSession,
@@ -840,6 +873,7 @@ async fn main() -> crate::error::Result<()> {
                 hint,
                 autocompletion,
                 give,
+                get_password,
                 set_password,
                 gen_all_passwords,
                 change_yaml_owner,

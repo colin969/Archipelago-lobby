@@ -114,6 +114,7 @@ func startApiServer(cfg *Config, apx *apxServer) *http.Server {
 	api.Use(srv.loggingMiddleware)
 	api.Use(srv.authMiddleware)
 	api.HandleFunc("/refresh_passwords", srv.handlePasswordRefresh).Methods(http.MethodPost)
+	api.HandleFunc("/password/{slotId}", srv.handlePassword).Methods(http.MethodGet)
 	api.HandleFunc("/deathlinks", srv.handleDeathlinks).Methods(http.MethodGet)
 	api.HandleFunc("/bounce_exclusions", srv.handleBounceExclusionsList).Methods(http.MethodGet)
 	api.HandleFunc("/bounce_exclusions/{slotId}/{tag}", srv.handleBounceExclusions).Methods(http.MethodPost, http.MethodDelete)
@@ -167,6 +168,31 @@ func (a *apiServer) handlePasswordRefresh(w http.ResponseWriter, r *http.Request
 		return
 	}
 	loadPasswordsIntoStore(a.apx.connections, a.apx.passwords, a.apx.roomPlayers, slots)
+}
+
+func (a *apiServer) handlePassword(w http.ResponseWriter, r *http.Request) {
+	if !a.config.LobbyEnabled {
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{"error": "lobby not enabled"})
+		return
+	}
+
+	vars := mux.Vars(r)
+	slotId, err := strconv.Atoi(vars["slotId"])
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid slotId"})
+		return
+	}
+
+	password, ok := a.apx.passwords.Get(slotId)
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "no password for slot"})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{"password": password})
 }
 
 func (a *apiServer) handleDeathlinks(w http.ResponseWriter, r *http.Request) {

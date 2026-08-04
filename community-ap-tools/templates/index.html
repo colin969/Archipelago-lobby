@@ -373,7 +373,8 @@ td {
             })
             .then((response) => {
                 if (response.ok) {
-                    location.reload()
+                    alert("Password changed");
+                    popup && popup.close();
                 } else {
                     alert("Failed to update password")
                 }
@@ -446,7 +447,8 @@ td {
                 })
                 .then((response) => {
                     if (response.ok) {
-                        location.reload()
+                        alert("Owner changed")
+                        popup && popup.close()
                     } else {
                         alert("Failed to change owner")
                     }

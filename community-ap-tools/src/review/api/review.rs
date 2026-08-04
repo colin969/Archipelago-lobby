@@ -12,7 +12,7 @@ use uuid::Uuid;
 use crate::{Config, TRACKER_CACHE_TTL, TrackerInfoCache, fetch_deathlinks, fetch_exclusions, fetch_incomplete_sphere1s};
 use crate::auth::{AdminSession, LoggedInSession, ModeratorSession};
 use crate::error;
-use crate::guards::{ApRoom, LobbyRoom, SlotPasswords, MergedSlotInfo};
+use crate::guards::{ApRoom, LobbyRoom, MergedSlotInfo};
 use crate::review::Role;
 use crate::review::db;
 
@@ -423,7 +423,6 @@ async fn get_tracker_info(
     _session: ModeratorSession,
     ap_room: ApRoom,
     lobby_room: LobbyRoom,
-    slot_passwords: SlotPasswords,
     config: &State<Config>,
     cache: &State<TrackerInfoCache>,
 ) -> crate::error::Result<Json<Vec<MergedSlotInfo>>> {
@@ -457,7 +456,6 @@ async fn get_tracker_info(
         .into_iter()
         .map(|slot| {
             let yaml = &lobby_room.yamls[slot.id - 1];
-            let password = slot_passwords.0[slot.id - 1].password.clone();
 
             MergedSlotInfo {
                 // It's moved for `name:` later, feels stupid but it works to put this line higher
@@ -474,7 +472,6 @@ async fn get_tracker_info(
                 discord_handle: yaml.discord_handle.clone(),
                 discord_id: yaml.discord_id.to_string(),
                 has_patch: yaml.has_patch,
-                password,
             }
         })
         .collect();

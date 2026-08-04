@@ -281,17 +281,29 @@ function createTrackerTable(tableId)
             {
                 label: "Password",
                 action: function (event, row) {
-                    const { lobby_slot_id, name, password } = row.getData();
-                    const pwd = password !== null ? `"${password}"` : "null";
-                    openPasswordPopup(lobby_slot_id, name, pwd);
+                    const { id, lobby_slot_id, name } = row.getData();
+                    getSlotPassword(id)
+                    .then((password) => {
+                        openPasswordPopup(lobby_slot_id, name, password);
+                    })
+                    .catch((err) => {
+                        alert(err)
+                    })
                 }
             },
             {
                 label: "Change Owner",
-                action: function (event, row) {
-                    const { lobby_slot_id, name, password } = row.getData();
-                    const pwd = password !== null ? `"${password}"` : "null";
-                    openChangeOwnerPopup(lobby_slot_id, name, pwd);
+                action: async function (event, row) {
+                    const { id, lobby_slot_id, name } = row.getData();
+                    const password = await getSlotPassword(id)
+                    .then((password) => {
+                        return password;
+                    })
+                    .catch((err) => {
+                        return null;
+                    });
+
+                    openChangeOwnerPopup(lobby_slot_id, name, password);
                 }
             },
             {
@@ -515,4 +527,12 @@ function timeSince(secondsSince) {
       return Math.floor(interval) + " minutes";
     }
     return Math.floor(seconds) + " seconds";
+}
+
+async function getSlotPassword(slotId) {
+    const res = await fetch("/api/password/" + slotId);
+    if (res.ok) {
+        return (await res.json())["password"];
+    }
+    throw `${res.json()}`;
 }
