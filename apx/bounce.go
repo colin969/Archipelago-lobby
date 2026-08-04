@@ -125,6 +125,11 @@ func (s apxServer) handleBounce(ctx context.Context, connState *connectionState,
 		return fmt.Errorf("unmarshalling bounce message: %w", err)
 	}
 
+	// Record types of tags sent by each slot
+	for _, tag := range msg.Tags {
+		s.metrics.bouncePackets.WithLabelValues(*connState.slotName, tag).Inc()
+	}
+
 	// Deathlink packets have extra options for blocking and probability limiting, handle seperate
 	if slices.Contains(msg.Tags, "DeathLink") {
 		return s.handleDeathLink(ctx, connState, msg)

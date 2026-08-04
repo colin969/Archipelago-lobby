@@ -86,6 +86,7 @@ func run() error {
 		loadPasswordsIntoStore(connRegistry, passwordStore, roomPlayers, slots)
 	}
 
+	reg, metrics := initMetrics()
 	srv := apxServer{
 		logf:         log.Printf,
 		config:       cfg,
@@ -95,6 +96,8 @@ func run() error {
 		connections:  connRegistry,
 		bounceInfo:   bounceInfo,
 		datapackages: datapackageCache,
+		metrics:      metrics,
+		reg:          reg,
 	}
 
 	if err := srv.prefetchDataPackages(context.Background()); err != nil {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type Spheres []SphereLocations
@@ -120,6 +121,7 @@ func startApiServer(cfg *Config, apx *apxServer) *http.Server {
 	api.HandleFunc("/spheres", srv.handleAllSpheres).Methods(http.MethodGet)
 	api.HandleFunc("/incomplete_sphere1", srv.handleIncompleteSphere1).Methods(http.MethodGet)
 	api.HandleFunc("/spheres/{slotId}", srv.handleSpheresForSlot).Methods(http.MethodGet)
+	api.HandleFunc("/metrics", promhttp.HandlerFor(apx.reg, promhttp.HandlerOpts{}).ServeHTTP)
 
 	s := &http.Server{
 		Addr:         cfg.ApiListenAddr,

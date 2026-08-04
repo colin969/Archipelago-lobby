@@ -102,11 +102,13 @@ func (s apxServer) handleGetDataPackage(ctx context.Context, connState *connecti
 		}
 	}
 
-	if !connState.authenticated {
-		// Don't send datapackages until after authed
-		connState.pendingDatapackGames = append(connState.pendingDatapackGames, games...)
-		return nil
-	}
+	// We can uncomment this if we want to delay datapackages again later
+
+	// if !connState.authenticated {
+	// 	// Don't send datapackages until after authed
+	// 	connState.pendingDatapackGames = append(connState.pendingDatapackGames, games...)
+	// 	return nil
+	// }
 
 	return s.sendDataPackages(ctx, connState.clientConn, games)
 }
