@@ -331,7 +331,7 @@ td {
                 fetch(url, { method: "POST" })
                     .then((response) => {
                         if (response.ok) {
-                            location.reload()
+                            alert("Genned passwords");
                         } else {
                             alert("Failed to generate passwords")
                         }
@@ -448,7 +448,8 @@ td {
                 .then((response) => {
                     if (response.ok) {
                         alert("Owner changed")
-                        popup && popup.close()
+                        popup && popup.close();
+                        forceReviewTableRefresh();
                     } else {
                         alert("Failed to change owner")
                     }
