@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/signal"
 	"strconv"
 	"time"
 
@@ -48,20 +47,6 @@ func run() error {
 		return err
 	}
 
-	roomPlayers, err := fetchRoomPlayers(cfg.ApApiRoot, cfg.ApRoomId)
-	if err != nil {
-		return fmt.Errorf("failed to get %s/api/room/%s/players from AP server, aborting: %w", cfg.ApApiRoot, cfg.ApRoomId, err)
-	}
-
-	roomInfo, err := connectAndGetRoomInfo(cfg.APHost, cfg.APPort)
-	if err != nil {
-		return fmt.Errorf("failed to get RoomInfo from AP server, aborting: %w", err)
-	}
-
-	if cfg.LobbyEnabled {
-		roomInfo.Password = true
-	}
-
 	wsListener, err := net.Listen("tcp", cfg.ListenAddr)
 	if err != nil {
 		return err
@@ -74,73 +59,27 @@ func run() error {
 	}
 	log.Printf("reduced listening on ws://%v", wsReducedListener.Addr())
 
-	passwordStore := newPasswordStore()
-	connRegistry := newConnectionRegistry()
-	datapackageCache := newDataPackageStore()
-	bounceInfo := newBounceInfoStore()
-	if cfg.LobbyEnabled {
-		slots, err := fetchSlotPasswords(cfg)
-		if err != nil {
-			return fmt.Errorf("failed to fetch slot passwords: %w", err)
-		}
-		loadPasswordsIntoStore(connRegistry, passwordStore, roomPlayers, slots)
-	}
-
 	reg, metrics := initMetrics()
-	srv := apxServer{
-		logf:         log.Printf,
-		config:       cfg,
-		roomInfo:     *roomInfo,
-		roomPlayers:  roomPlayers,
-		passwords:    passwordStore,
-		connections:  connRegistry,
-		bounceInfo:   bounceInfo,
-		datapackages: datapackageCache,
-		metrics:      metrics,
-		reg:          reg,
-	}
+	rm, router := startRoomManager(cfg, reg, metrics)
 
-	if err := srv.prefetchDataPackages(context.Background()); err != nil {
-		log.Fatalf("prefetching datapackages: %v", err)
-	}
-
-	startApiServer(cfg, &srv)
-
-	// Normal traffic
-	normalServer := &http.Server{
-		Handler:      apxHandler{server: srv, reduced: false},
+	s := &http.Server{
+		Addr:         cfg.ApiListenAddr,
+		Handler:      router,
 		ReadTimeout:  time.Second * 10,
 		WriteTimeout: time.Second * 10,
 	}
 
-	// Reduced traffic (e.g less PrintJSON messages)
-	reducedServer := &http.Server{
-		Handler:      apxHandler{server: srv, reduced: true},
-		ReadTimeout:  time.Second * 10,
-		WriteTimeout: time.Second * 10,
-	}
-
-	errc := make(chan error, 1)
 	go func() {
-		errc <- normalServer.Serve(wsListener)
-	}()
-	go func() {
-		errc <- reducedServer.Serve(wsReducedListener)
+		rm.startNewHostedRoom(cfg.ApRoomId, cfg.LobbyRoomId, &cfg.ListenAddr, &cfg.ReducedListenAddr)
 	}()
 
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, os.Interrupt)
-	select {
-	case err := <-errc:
-		log.Printf("failed to serve: %v", err)
-	case sig := <-sigs:
-		log.Printf("terminating: %v", sig)
+	log.Printf("API server listening on http://%s", cfg.ApiListenAddr)
+	if err := s.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Printf("API server error: %v", err)
+		return err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-	defer cancel()
-
-	return normalServer.Shutdown(ctx)
+	return nil
 }
 
 func loadConfigFile(path string) (*Config, error) {

@@ -8,7 +8,6 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 type passwordStore struct {
@@ -49,7 +48,7 @@ type apxServer struct {
 	connections  *connectionRegistry
 	datapackages *DataPackageStore
 	metrics      *metrics
-	reg          *prometheus.Registry
+	lobbyRoomId  string
 }
 
 // No strict lock, but this MUST be immutable to be safe
@@ -172,7 +171,7 @@ const (
 )
 
 type apxHandler struct {
-	server  apxServer
+	server  *apxServer
 	reduced bool
 }
 
@@ -236,7 +235,7 @@ func (s apxServer) serveConn(w http.ResponseWriter, r *http.Request, reduced boo
 			}
 
 			if connState.authenticated {
-				s.metrics.incomingPackets.WithLabelValues(*connState.slotName, cmd).Inc()
+				s.metrics.incomingPackets.WithLabelValues(s.lobbyRoomId, *connState.slotName, cmd).Inc()
 			}
 
 			if err := s.handleMessage(ctx, connState, MessageType(cmd), message); err != nil {

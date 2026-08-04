@@ -1,15 +1,18 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -24,15 +27,60 @@ type SphereResult struct {
 	Checked   int             `json:"checked"`
 }
 
-type apiServer struct {
-	config  *Config
-	apx     *apxServer
-	spheres Spheres
+type RoomManager struct {
+	config   *Config
+	registry *RoomRegistry
+	metrics  *metrics
+	reg      *prometheus.Registry
+}
+
+type RoomRegistry struct {
+	mu    sync.RWMutex
+	rooms map[string]HostedRoom
+}
+
+func (r *RoomRegistry) Get(roomId string) (*HostedRoom, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	room, ok := r.rooms[roomId]
+	return &room, ok
+}
+
+func (r *RoomRegistry) Add(hostedRoom *HostedRoom) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, exists := r.rooms[hostedRoom.lobbyRoomId]
+	if exists {
+		return fmt.Errorf("room already exists: %s", hostedRoom.lobbyRoomId)
+	}
+	r.rooms[hostedRoom.lobbyRoomId] = *hostedRoom
+	return nil
+}
+
+func (r *RoomRegistry) Remove(roomId string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	room, exists := r.rooms[roomId]
+	if exists {
+		room.cancel()
+	}
+	delete(r.rooms, roomId)
+}
+
+type HostedRoom struct {
+	lobbyRoomId string
+	apx         *apxServer
+	spheres     Spheres
 	// e.g locationIdToName["Ocarina of Time"][3] == "Song from Saria"
 	locationIdToName     map[string]map[int]string
 	checkedLocations     map[int]map[int64]bool
 	sphereCache          *slotSphereCache
 	completeSphere1Slots map[int]struct{}
+	normalServer         *http.Server
+	reducedServer        *http.Server
+	apRoomId             string
+	ctx                  context.Context
+	cancel               context.CancelFunc
 }
 
 type Deathlink struct {
@@ -89,28 +137,23 @@ func (c *slotSphereCache) Set(slotId int, b []byte) {
 	c.mu.Unlock()
 }
 
-func startApiServer(cfg *Config, apx *apxServer) *http.Server {
-	// Prefetch sphere locations
-	spheres, err := fetchRoomSpheres(cfg.ApApiRoot, cfg.ApRoomId)
-	if err != nil {
-		log.Fatalf("prefetching spheres: %v", err)
+func newRoomRegistry() *RoomRegistry {
+	return &RoomRegistry{
+		rooms: make(map[string]HostedRoom),
 	}
+}
 
-	srv := &apiServer{
-		config:               cfg,
-		apx:                  apx,
-		spheres:              spheres,
-		sphereCache:          newSlotSphereCache(),
-		completeSphere1Slots: map[int]struct{}{},
+func startRoomManager(cfg *Config, reg *prometheus.Registry, metrics *metrics) (*RoomManager, *mux.Router) {
+	srv := &RoomManager{
+		config:   cfg,
+		registry: newRoomRegistry(),
+		reg:      reg,
+		metrics:  metrics,
 	}
-
-	if err := srv.refreshCheckedLocations(cfg.ApApiRoot, cfg.ApRoomId); err != nil {
-		log.Printf("initial checked locations fetch failed: %v", err)
-	}
-	srv.startCheckedLocationPoller(cfg.ApApiRoot, cfg.ApRoomId, 30*time.Second)
 
 	r := mux.NewRouter()
-	api := r.PathPrefix("/api").Subrouter()
+	r.HandleFunc("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}).ServeHTTP)
+	api := r.PathPrefix("/api/{roomId}").Subrouter()
 	api.Use(srv.loggingMiddleware)
 	api.Use(srv.authMiddleware)
 	api.HandleFunc("/refresh_passwords", srv.handlePasswordRefresh).Methods(http.MethodPost)
@@ -122,29 +165,155 @@ func startApiServer(cfg *Config, apx *apxServer) *http.Server {
 	api.HandleFunc("/spheres", srv.handleAllSpheres).Methods(http.MethodGet)
 	api.HandleFunc("/incomplete_sphere1", srv.handleIncompleteSphere1).Methods(http.MethodGet)
 	api.HandleFunc("/spheres/{slotId}", srv.handleSpheresForSlot).Methods(http.MethodGet)
-	api.HandleFunc("/metrics", promhttp.HandlerFor(apx.reg, promhttp.HandlerOpts{}).ServeHTTP)
 
-	s := &http.Server{
-		Addr:         cfg.ApiListenAddr,
-		Handler:      r,
+	return srv, r
+}
+
+func (rm *RoomManager) startNewHostedRoom(apRoomId string, lobbyRoomId string, listenAddr, reducedListenAddr *string) error {
+	_, exists := rm.registry.Get(lobbyRoomId)
+	if exists {
+		return fmt.Errorf("room already exists: %s", lobbyRoomId)
+	}
+
+	roomPlayers, err := fetchRoomPlayers(rm.config.ApApiRoot, apRoomId)
+	if err != nil {
+		return fmt.Errorf("failed to get %s/api/room/%s/players from AP server, aborting: %w", rm.config.ApApiRoot, apRoomId, err)
+	}
+
+	roomInfo, err := connectAndGetRoomInfo(rm.config.APHost, rm.config.APPort)
+	if err != nil {
+		return fmt.Errorf("failed to get RoomInfo from AP server, aborting: %w", err)
+	}
+
+	spheres, err := fetchRoomSpheres(rm.config.ApApiRoot, apRoomId)
+	if err != nil {
+		log.Fatalf("prefetching spheres: %v", err)
+	}
+
+	passwordStore := newPasswordStore()
+	connRegistry := newConnectionRegistry()
+	datapackageCache := newDataPackageStore()
+	bounceInfo := newBounceInfoStore()
+	slots, err := fetchSlotPasswords(rm.config, lobbyRoomId)
+	if err != nil {
+		return fmt.Errorf("failed to fetch slot passwords: %w", err)
+	}
+	loadPasswordsIntoStore(connRegistry, passwordStore, roomPlayers, slots)
+
+	apx := &apxServer{
+		logf:         log.Printf,
+		config:       rm.config,
+		roomInfo:     *roomInfo,
+		roomPlayers:  roomPlayers,
+		passwords:    passwordStore,
+		connections:  connRegistry,
+		bounceInfo:   bounceInfo,
+		datapackages: datapackageCache,
+		metrics:      rm.metrics,
+		lobbyRoomId:  lobbyRoomId,
+	}
+
+	if err := apx.prefetchDataPackages(context.Background()); err != nil {
+		log.Fatalf("prefetching datapackages: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	room := &HostedRoom{
+		lobbyRoomId:          lobbyRoomId,
+		apx:                  apx,
+		spheres:              spheres,
+		sphereCache:          newSlotSphereCache(),
+		completeSphere1Slots: map[int]struct{}{},
+		ctx:                  ctx,
+		cancel:               cancel,
+	}
+
+	if err := room.refreshCheckedLocations(rm.config.ApApiRoot, apRoomId); err != nil {
+		log.Printf("initial checked locations fetch failed: %v", err)
+	}
+	room.startCheckedLocationPoller(rm.config.ApApiRoot, apRoomId, 30*time.Second)
+
+	// Normal traffic
+	normalServer := &http.Server{
+		Handler:      apxHandler{server: apx, reduced: false},
 		ReadTimeout:  time.Second * 10,
 		WriteTimeout: time.Second * 10,
 	}
 
-	log.Printf("API server listening on http://%s", cfg.ApiListenAddr)
+	// Reduced traffic (e.g less PrintJSON messages)
+	reducedServer := &http.Server{
+		Handler:      apxHandler{server: apx, reduced: true},
+		ReadTimeout:  time.Second * 10,
+		WriteTimeout: time.Second * 10,
+	}
+
+	// Add room to registry
+	err = rm.registry.Add(room)
+	if err != nil {
+		return fmt.Errorf("room already exists: %s", lobbyRoomId)
+	}
+	defer rm.registry.Remove(lobbyRoomId)
+
+	// Setup both servers
+
+	if listenAddr == nil {
+		a := "0.0.0.0"
+		listenAddr = &a
+	}
+	wsListener, err := net.Listen("tcp", *listenAddr)
+	if err != nil {
+		return err
+	}
+	log.Printf("room %s: listening on ws://%v", lobbyRoomId, wsListener.Addr())
+
+	if reducedListenAddr == nil {
+		a := "0.0.0.0"
+		reducedListenAddr = &a
+	}
+	wsReducedListener, err := net.Listen("tcp", *reducedListenAddr)
+	if err != nil {
+		return err
+	}
+	log.Printf("room %s: reduced listening on ws://%v", lobbyRoomId, wsReducedListener.Addr())
+
+	errc := make(chan error, 1)
 	go func() {
-		if err := s.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("API server error: %v", err)
-		}
+		errc <- normalServer.Serve(wsListener)
+	}()
+	go func() {
+		errc <- reducedServer.Serve(wsReducedListener)
 	}()
 
-	return s
+	// Wait until a server errors, or cancel is called
+	select {
+	case err := <-errc:
+		return fmt.Errorf("ws server error: %w", err)
+	case <-ctx.Done():
+	}
+
+	// Shutdown both servers immediately
+	normalServer.Close()
+	reducedServer.Close()
+
+	return nil
 }
 
-func (a *apiServer) authMiddleware(next http.Handler) http.Handler {
+func (rm *RoomManager) loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		next.ServeHTTP(w, r)
+		route := mux.CurrentRoute(r)
+		path, _ := route.GetPathTemplate()
+		log.Printf("%s %s (matched: %s) %s", r.Method, r.URL.Path, path, time.Since(start))
+	})
+}
+
+func (rm *RoomManager) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := r.Header.Get("X-API-Key")
-		if a.config.ApiKey == "" || key != a.config.ApiKey {
+		if rm.config.ApiKey == "" || key != rm.config.ApiKey {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
@@ -154,24 +323,33 @@ func (a *apiServer) authMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func (a *apiServer) handlePasswordRefresh(w http.ResponseWriter, r *http.Request) {
-	if !a.config.LobbyEnabled {
+func (rm *RoomManager) handlePasswordRefresh(w http.ResponseWriter, r *http.Request) {
+	room, ok := rm.roomFromRequest(w, r)
+	if !ok {
+		return
+	}
+	if !rm.config.LobbyEnabled {
 		w.WriteHeader(http.StatusForbidden)
 		json.NewEncoder(w).Encode(map[string]string{"error": "lobby not enabled"})
 		return
 	}
 
-	slots, err := fetchSlotPasswords(a.config)
+	slots, err := fetchSlotPasswords(rm.config, room.lobbyRoomId)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to fetch passwords from lobby"})
 		return
 	}
-	loadPasswordsIntoStore(a.apx.connections, a.apx.passwords, a.apx.roomPlayers, slots)
+	loadPasswordsIntoStore(room.apx.connections, room.apx.passwords, room.apx.roomPlayers, slots)
 }
 
-func (a *apiServer) handlePassword(w http.ResponseWriter, r *http.Request) {
-	if !a.config.LobbyEnabled {
+func (rm *RoomManager) handlePassword(w http.ResponseWriter, r *http.Request) {
+	room, ok := rm.roomFromRequest(w, r)
+	if !ok {
+		return
+	}
+
+	if !rm.config.LobbyEnabled {
 		w.WriteHeader(http.StatusForbidden)
 		json.NewEncoder(w).Encode(map[string]string{"error": "lobby not enabled"})
 		return
@@ -185,7 +363,7 @@ func (a *apiServer) handlePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	password, ok := a.apx.passwords.Get(slotId)
+	password, ok := room.apx.passwords.Get(slotId)
 	if !ok {
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(map[string]string{"error": "no password for slot"})
@@ -195,17 +373,30 @@ func (a *apiServer) handlePassword(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"password": password})
 }
 
-func (a *apiServer) handleDeathlinks(w http.ResponseWriter, r *http.Request) {
-	deathlinks := a.apx.bounceInfo.Get()
+func (rm *RoomManager) handleDeathlinks(w http.ResponseWriter, r *http.Request) {
+	room, ok := rm.roomFromRequest(w, r)
+	if !ok {
+		return
+	}
+	deathlinks := room.apx.bounceInfo.Get()
 	json.NewEncoder(w).Encode(deathlinks)
 }
 
-func (a *apiServer) handleBounceExclusionsList(w http.ResponseWriter, r *http.Request) {
+func (rm *RoomManager) handleBounceExclusionsList(w http.ResponseWriter, r *http.Request) {
+	room, ok := rm.roomFromRequest(w, r)
+	if !ok {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(a.apx.bounceInfo.GetExclusions())
+	json.NewEncoder(w).Encode(room.apx.bounceInfo.GetExclusions())
 }
 
-func (a *apiServer) handleBounceExclusions(w http.ResponseWriter, r *http.Request) {
+func (rm *RoomManager) handleBounceExclusions(w http.ResponseWriter, r *http.Request) {
+	room, ok := rm.roomFromRequest(w, r)
+	if !ok {
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	vars := mux.Vars(r)
 	slotId, err := strconv.Atoi(vars["slotId"])
@@ -221,21 +412,26 @@ func (a *apiServer) handleBounceExclusions(w http.ResponseWriter, r *http.Reques
 
 	switch r.Method {
 	case http.MethodPost:
-		a.apx.bounceInfo.Exclude(slotId, tag)
+		room.apx.bounceInfo.Exclude(slotId, tag)
 		json.NewEncoder(w).Encode(map[string]any{"excluded": true})
 
 	case http.MethodDelete:
-		a.apx.bounceInfo.Unexclude(slotId, tag)
+		room.apx.bounceInfo.Unexclude(slotId, tag)
 		json.NewEncoder(w).Encode(map[string]any{"excluded": false})
 	}
 }
 
-func (a *apiServer) handleProbability(w http.ResponseWriter, r *http.Request) {
+func (rm *RoomManager) handleProbability(w http.ResponseWriter, r *http.Request) {
+	room, ok := rm.roomFromRequest(w, r)
+	if !ok {
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 
 	switch r.Method {
 	case http.MethodGet:
-		json.NewEncoder(w).Encode(map[string]any{"probability": a.apx.bounceInfo.GetProbability()})
+		json.NewEncoder(w).Encode(map[string]any{"probability": room.apx.bounceInfo.GetProbability()})
 
 	case http.MethodPost:
 		var body struct {
@@ -251,12 +447,17 @@ func (a *apiServer) handleProbability(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]string{"error": "probability must be between 0 and 1"})
 			return
 		}
-		a.apx.bounceInfo.SetProbability(*body.Probability)
-		json.NewEncoder(w).Encode(map[string]any{"probability": a.apx.bounceInfo.GetProbability()})
+		room.apx.bounceInfo.SetProbability(*body.Probability)
+		json.NewEncoder(w).Encode(map[string]any{"probability": room.apx.bounceInfo.GetProbability()})
 	}
 }
 
-func (a *apiServer) handleSpheresForSlot(w http.ResponseWriter, r *http.Request) {
+func (rm *RoomManager) handleSpheresForSlot(w http.ResponseWriter, r *http.Request) {
+	room, ok := rm.roomFromRequest(w, r)
+	if !ok {
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 
 	vars := mux.Vars(r)
@@ -268,22 +469,22 @@ func (a *apiServer) handleSpheresForSlot(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Check for cache hit first
-	if cached, ok := a.sphereCache.Get(slotId); ok {
+	if cached, ok := room.sphereCache.Get(slotId); ok {
 		w.Write(cached)
 		return
 	}
-	slot, ok := a.apx.roomPlayers.slots[slotId]
+	slot, ok := room.apx.roomPlayers.slots[slotId]
 	if !ok {
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(map[string]string{"error": "slot not found"})
 		return
 	}
 
-	locationIDToName := a.apx.datapackages.LocationIDToName[slot.Game]
-	checkedLocations := a.checkedLocations[slotId]
+	locationIDToName := room.apx.datapackages.LocationIDToName[slot.Game]
+	checkedLocations := room.checkedLocations[slotId]
 
-	result := make([]SphereResult, 0, len(a.spheres))
-	for _, sphere := range a.spheres {
+	result := make([]SphereResult, 0, len(room.spheres))
+	for _, sphere := range room.spheres {
 		locIDs, ok := sphere[int32(slotId)]
 		if !ok {
 			continue
@@ -313,26 +514,31 @@ func (a *apiServer) handleSpheresForSlot(w http.ResponseWriter, r *http.Request)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	a.sphereCache.Set(slotId, b)
+	room.sphereCache.Set(slotId, b)
 	w.Write(b)
 }
 
-func (a *apiServer) handleAllSpheres(w http.ResponseWriter, r *http.Request) {
+func (rm *RoomManager) handleAllSpheres(w http.ResponseWriter, r *http.Request) {
+	room, ok := rm.roomFromRequest(w, r)
+	if !ok {
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 
-	result := make(map[string]json.RawMessage, len(a.apx.roomPlayers.slots))
+	result := make(map[string]json.RawMessage, len(room.apx.roomPlayers.slots))
 
-	for slotId, slot := range a.apx.roomPlayers.slots {
-		if cached, ok := a.sphereCache.Get(slotId); ok {
+	for slotId, slot := range room.apx.roomPlayers.slots {
+		if cached, ok := room.sphereCache.Get(slotId); ok {
 			result[slot.Name] = json.RawMessage(cached)
 			continue
 		}
 
-		locationIDToName := a.apx.datapackages.LocationIDToName[slot.Game]
-		checkedLocations := a.checkedLocations[slotId]
+		locationIDToName := room.apx.datapackages.LocationIDToName[slot.Game]
+		checkedLocations := room.checkedLocations[slotId]
 
-		slotResult := make([]SphereResult, 0, len(a.spheres))
-		for _, sphere := range a.spheres {
+		slotResult := make([]SphereResult, 0, len(room.spheres))
+		for _, sphere := range room.spheres {
 			locIDs, ok := sphere[int32(slotId)]
 			if !ok {
 				continue
@@ -362,7 +568,7 @@ func (a *apiServer) handleAllSpheres(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		a.sphereCache.Set(slotId, b)
+		room.sphereCache.Set(slotId, b)
 		result[slot.Name] = json.RawMessage(b)
 	}
 
@@ -371,30 +577,35 @@ func (a *apiServer) handleAllSpheres(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *apiServer) handleIncompleteSphere1(w http.ResponseWriter, r *http.Request) {
+func (rm *RoomManager) handleIncompleteSphere1(w http.ResponseWriter, r *http.Request) {
+	room, ok := rm.roomFromRequest(w, r)
+	if !ok {
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 
-	if len(a.spheres) == 0 {
+	if len(room.spheres) == 0 {
 		json.NewEncoder(w).Encode([]int{})
 		return
 	}
 
-	sphere1 := a.spheres[0]
+	sphere1 := room.spheres[0]
 
 	// Check if status of incomplete slots has changed
 	for slotId, locIDs := range sphere1 {
-		if _, done := a.completeSphere1Slots[int(slotId)]; done {
+		if _, done := room.completeSphere1Slots[int(slotId)]; done {
 			continue
 		}
-		if !isSphere1Incomplete(locIDs, a.checkedLocations[int(slotId)]) {
-			a.completeSphere1Slots[int(slotId)] = struct{}{}
+		if !isSphere1Incomplete(locIDs, room.checkedLocations[int(slotId)]) {
+			room.completeSphere1Slots[int(slotId)] = struct{}{}
 		}
 	}
 
 	// Build list of all incomplete slots
 	result := make([]int, 0)
-	for slotId := range a.apx.roomPlayers.slots {
-		if _, done := a.completeSphere1Slots[slotId]; !done {
+	for slotId := range room.apx.roomPlayers.slots {
+		if _, done := room.completeSphere1Slots[slotId]; !done {
 			result = append(result, slotId)
 		}
 	}
@@ -410,20 +621,10 @@ func isSphere1Incomplete(locIDs []int64, checkedLocations map[int64]bool) bool {
 	return false
 }
 
-func (a *apiServer) loggingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		next.ServeHTTP(w, r)
-		route := mux.CurrentRoute(r)
-		path, _ := route.GetPathTemplate()
-		log.Printf("%s %s (matched: %s) %s", r.Method, r.URL.Path, path, time.Since(start))
-	})
-}
-
-func (a *apiServer) startCheckedLocationPoller(apApiRoot, apRoomId string, interval time.Duration) {
+func (rm *HostedRoom) startCheckedLocationPoller(apApiRoot, apRoomId string, interval time.Duration) {
 	go func() {
 		for {
-			if err := a.refreshCheckedLocations(apApiRoot, apRoomId); err != nil {
+			if err := rm.refreshCheckedLocations(apApiRoot, apRoomId); err != nil {
 				log.Printf("refreshing checked locations: %v", err)
 			}
 			time.Sleep(interval)
@@ -431,7 +632,7 @@ func (a *apiServer) startCheckedLocationPoller(apApiRoot, apRoomId string, inter
 	}()
 }
 
-func (a *apiServer) refreshCheckedLocations(apApiRoot, apRoomId string) error {
+func (rm *HostedRoom) refreshCheckedLocations(apApiRoot, apRoomId string) error {
 	url := fmt.Sprintf("%s/api/room/%s/checked_locations", apApiRoot, apRoomId)
 
 	resp, err := http.Get(url)
@@ -464,13 +665,13 @@ func (a *apiServer) refreshCheckedLocations(apApiRoot, apRoomId string) error {
 
 	// Invalidate cache for any slot whose checked locations changed
 	for slotId, newLocs := range newChecked {
-		oldLocs := a.checkedLocations[slotId]
+		oldLocs := rm.checkedLocations[slotId]
 		if len(oldLocs) != len(newLocs) {
-			a.sphereCache.Invalidate(slotId)
+			rm.sphereCache.Invalidate(slotId)
 		}
 	}
 
-	a.checkedLocations = newChecked
+	rm.checkedLocations = newChecked
 	return nil
 }
 
@@ -510,4 +711,17 @@ func (s *SphereLocations) UnmarshalJSON(data []byte) error {
 		(*s)[int32(id)] = v
 	}
 	return nil
+}
+
+func (rm *RoomManager) roomFromRequest(w http.ResponseWriter, r *http.Request) (*HostedRoom, bool) {
+	vars := mux.Vars(r)
+	roomId := vars["roomId"]
+	room, ok := rm.registry.Get(roomId)
+	if !ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "room not found"})
+		return nil, false
+	}
+	return room, true
 }

@@ -442,8 +442,8 @@ async fn get_tracker_info(
 
     let room_id = lobby_room.id.to_string();
     let deathlinks = fetch_deathlinks(config, &room_id).await.unwrap_or_default();
-    let exclusions = fetch_exclusions(config).await.unwrap_or_default();
-    let incomplete_sphere1s: HashSet<usize> = fetch_incomplete_sphere1s(config)    
+    let exclusions = fetch_exclusions(config, &room_id).await.unwrap_or_default();
+    let incomplete_sphere1s: HashSet<usize> = fetch_incomplete_sphere1s(config, &room_id)    
         .await
         .unwrap_or_default()
         .into_iter()

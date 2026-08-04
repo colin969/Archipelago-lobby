@@ -133,7 +133,7 @@ async fn fetch_deathlinks(config: &Config, room_id: &str) -> crate::error::Resul
 
     let client = reqwest::Client::new();
     let response = client
-        .get(format!("{}/api/deathlinks/{}", apx_api_root, room_id))
+        .get(format!("{}/api/{}/deathlinks", apx_api_root, room_id))
         .header("X-API-Key", apx_api_key)
         .send()
         .await?;
@@ -141,7 +141,7 @@ async fn fetch_deathlinks(config: &Config, room_id: &str) -> crate::error::Resul
     Ok(response.json().await?)
 }
 
-async fn fetch_exclusions(config: &Config) -> crate::error::Result<HashMap<usize, Vec<String>>> {
+async fn fetch_exclusions(config: &Config, room_id: &str) -> crate::error::Result<HashMap<usize, Vec<String>>> {
     let apx_api_root = config
         .apx_api_root
         .as_ref()
@@ -153,7 +153,7 @@ async fn fetch_exclusions(config: &Config) -> crate::error::Result<HashMap<usize
 
     let client = reqwest::Client::new();
     let response = client
-        .get(format!("{}/api/bounce_exclusions", apx_api_root))
+        .get(format!("{}/api/{}/bounce_exclusions", apx_api_root, room_id))
         .header("X-API-Key", apx_api_key)
         .send()
         .await?;
@@ -162,7 +162,7 @@ async fn fetch_exclusions(config: &Config) -> crate::error::Result<HashMap<usize
     Ok(data.0)
 }
 
-async fn fetch_incomplete_sphere1s(config: &Config) -> crate::error::Result<Vec<usize>> {
+async fn fetch_incomplete_sphere1s(config: &Config, room_id: &str) -> crate::error::Result<Vec<usize>> {
     let apx_api_root = config
         .apx_api_root
         .as_ref()
@@ -174,7 +174,7 @@ async fn fetch_incomplete_sphere1s(config: &Config) -> crate::error::Result<Vec<
 
     let client = reqwest::Client::new();
     let response = client
-        .get(format!("{}/api/incomplete_sphere1", apx_api_root))
+        .get(format!("{}/api/{}/incomplete_sphere1", apx_api_root, room_id))
         .header("X-API-Key", apx_api_key)
         .send()
         .await?;
@@ -199,8 +199,8 @@ async fn get_password(
 
     let client = reqwest::Client::new();
     let url = format!(
-        "{}api/password/{}",
-        apx_api_root, slot_id
+        "{}api/{}/password/{}",
+        apx_api_root, config.lobby_room_id, slot_id
     );
     let response = client
         .get(url)
@@ -225,7 +225,7 @@ async fn deathlinks(
     let room_id = lobby_room.id.to_string();
 
     let deathlinks = fetch_deathlinks(config, &room_id).await.unwrap_or_default();
-    let excluded_slots = fetch_exclusions(config).await.unwrap_or_default();
+    let excluded_slots = fetch_exclusions(config, &room_id).await.unwrap_or_default();
 
     let deathlink_tag = String::from("DeathLink");
     let slots: Vec<DeathlinksSlot> = ap_room
@@ -273,8 +273,8 @@ async fn proxy_add_exclusion(
 
     let client = reqwest::Client::new();
     let url = format!(
-        "{}api/bounce_exclusions/{}/{}",
-        apx_api_root, slot_id, tag_name
+        "{}api/{}/bounce_exclusions/{}/{}",
+        apx_api_root, config.lobby_room_id, slot_id, tag_name
     );
     let response = client
         .post(url)
@@ -312,8 +312,8 @@ async fn proxy_remove_exclusion(
     let client = reqwest::Client::new();
     let response = client
         .delete(format!(
-            "{}api/bounce_exclusions/{}/{}",
-            apx_api_root, slot_id, tag_name
+            "{}api/{}/bounce_exclusions/{}/{}",
+            apx_api_root, config.lobby_room_id, slot_id, tag_name
         ))
         .header("X-API-Key", apx_api_key)
         .send()
@@ -342,7 +342,7 @@ async fn get_deathlink_probability(
 
     let client = reqwest::Client::new();
     let response = client
-        .get(format!("{}/api/deathlink_probability", apx_api_root))
+        .get(format!("{}/api/{}/deathlink_probability", apx_api_root, config.lobby_room_id))
         .header("X-API-Key", apx_api_key)
         .send()
         .await?;
@@ -368,7 +368,7 @@ async fn set_deathlink_probability(
 
     let client = reqwest::Client::new();
     let response = client
-        .post(format!("{}/api/deathlink_probability", apx_api_root))
+        .post(format!("{}/api/{}/deathlink_probability", apx_api_root, config.lobby_room_id))
         .header("X-API-Key", apx_api_key)
         .json(&request.into_inner())
         .send()
@@ -404,7 +404,7 @@ async fn get_deferred_datapackage_games(
 
     let client = reqwest::Client::new();
     let response = client
-        .get(format!("{}/api/deferred_datapackage_games", apx_api_root))
+        .get(format!("{}/api/{}/deferred_datapackage_games", apx_api_root, config.lobby_room_id))
         .header("X-API-Key", apx_api_key)
         .send()
         .await?;
@@ -430,7 +430,7 @@ async fn add_deferred_datapackage_game(
 
     let client = reqwest::Client::new();
     let response = client
-        .post(format!("{}/api/deferred_datapackage_games", apx_api_root))
+        .post(format!("{}/api/{}/deferred_datapackage_games", apx_api_root, config.lobby_room_id))
         .header("X-API-Key", apx_api_key)
         .json(&request.into_inner())
         .send()
@@ -456,7 +456,7 @@ async fn remove_deferred_datapackage_game(
         .ok_or_else(|| anyhow!("APX API key not configured"))?;
 
     let client = reqwest::Client::new();
-    let mut url = apx_api_root.join("/api/deferred_datapackage_games/")?;
+    let mut url = apx_api_root.join(&format!("/api/{}/deferred_datapackage_games/", config.lobby_room_id))?;
     url.path_segments_mut()
         .map_err(|_| anyhow!("Invalid APX URL"))?
         .push(game_name);
@@ -611,7 +611,7 @@ async fn notify_proxy_password_refresh(config: &State<Config>) {
         return;
     };
 
-    let apx_url = match apx_root.join("/api/refresh_passwords") {
+    let apx_url = match apx_root.join(&format!("/api/{}/refresh_passwords", config.lobby_room_id)) {
         Ok(url) => url,
         Err(e) => {
             eprintln!("[REFRESH_PASSWORDS] Failed to build APX URL: {}", e);

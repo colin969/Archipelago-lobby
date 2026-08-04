@@ -14,8 +14,8 @@ type SlotPasswordInfo struct {
 	Password   *string `json:"password"`
 }
 
-func fetchSlotPasswords(cfg *Config) ([]SlotPasswordInfo, error) {
-	url := fmt.Sprintf("%s/api/room/%s/slots_passwords", cfg.LobbyRootUrl, cfg.LobbyRoomId)
+func fetchSlotPasswords(cfg *Config, roomId string) ([]SlotPasswordInfo, error) {
+	url := fmt.Sprintf("%s/api/room/%s/slots_passwords", cfg.LobbyRootUrl, roomId)
 
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
