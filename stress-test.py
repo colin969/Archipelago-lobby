@@ -48,11 +48,12 @@ async def run_game_client(
     stats: ClientStats,
     semaphore: asyncio.Semaphore,
     compression,
+    connect_limiter,
     password: str = "",
 ) -> None:
     async with semaphore:
         try:
-            await _client_session(server_url, slot, stats, compression, password)
+            await _client_session(server_url, slot, stats, compression, connect_limiter, password)
         except Exception as e:
             stats.error = str(e)
 
@@ -62,13 +63,14 @@ async def _client_session(
     slot: PlayerSlot,
     stats: ClientStats,
     compression,
+    connect_limiter,
     password: str
 ) -> None:
     client_uuid = str(uuid.uuid4())
     version = {"major": 0, "minor": 6, "build": 0, "class": "Version"}
 
-    # Stagger clients
-    await asyncio.sleep(random.uniform(0, 5))
+    # Wait our turn, staggered
+    await connect_limiter.acquire()
 
     try:
         async with websockets.connect(server_url, max_size=10 * 1024 * 1024, compression=compression) as ws:
@@ -96,6 +98,7 @@ async def _client_session(
 
             # Receive Connected or ConnectionRefused
             missing_locations = []
+            checked_locations = []
             while True:
                 raw = await asyncio.wait_for(ws.recv(), timeout=15)
                 packets = json.loads(raw)
@@ -110,8 +113,11 @@ async def _client_session(
                 connected = next((p for p in packets if p.get("cmd") == "Connected"), None)
                 if connected:
                     missing_locations = list(connected.get("missing_locations", []))
+                    checked_locations = set(connected.get("checked_locations", []))
                     stats.connected = True
                     break
+
+            total_locations = len(missing_locations) + len(checked_locations)
 
             if not missing_locations:
                 # Nothing to check, exit
@@ -132,27 +138,21 @@ async def _client_session(
             async def drain_recv() -> None:
                 while True:
                     try:
-                        await asyncio.wait_for(ws.recv(), timeout=5)
+                        raw = await asyncio.wait_for(ws.recv(), timeout=30)
+                        packets = json.loads(raw)
+                        room_update = next((p for p in packets if p.get("cmd") == "RoomUpdate"), None)
+                        if room_update is not None:
+                            new_checked = room_update.get("checked_locations", [])
+                            checked_locations.update(new_checked)
+                            if len(checked_locations) >= total_locations:
+                                break
                     except asyncio.TimeoutError:
+                        if len(checked_locations) >= total_locations:
+                            break
+                        stats.error = "Timeout waiting for server response"
                         break
 
             await asyncio.gather(send_checks(), drain_recv())
-
-            # Wait for server to finish sending items before disconnecting
-            async def drain_with_timeout() -> None:
-                deadline = asyncio.get_event_loop().time() + 10
-                while True:
-                    remaining = deadline - asyncio.get_event_loop().time()
-                    if remaining <= 0:
-                        break
-                    try:
-                        await asyncio.wait_for(ws.recv(), timeout=remaining)
-                    except asyncio.TimeoutError:
-                        break
-                    except ConnectionClosed:
-                        break
-
-            await drain_with_timeout()
 
             # Send proper close handshake
             try:
@@ -269,12 +269,22 @@ async def main() -> None:
     all_stats: list[ClientStats] = []
     tasks = []
 
+    connect_limiter = asyncio.Semaphore(0)
+
+    async def release_tokens() -> None:
+        """Release one connection token every ~50ms (20 connects/sec)"""
+        for _ in range(len(slots)):
+            connect_limiter.release()
+            await asyncio.sleep(0.05)
+
+    asyncio.create_task(release_tokens())
+
     for slot in slots:
         stats = ClientStats(player_name=slot.player_name, game=slot.game)
         all_stats.append(stats)
         password = passwords.get(slot.player_name, "")
         task = asyncio.create_task(
-            run_game_client(args.server_url, slot, stats, semaphore, compression, password)
+            run_game_client(args.server_url, slot, stats, semaphore, compression, connect_limiter, password)
         )
         tasks.append(task)
 
