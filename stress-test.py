@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Archipelago WebSocket Server Stress Tester
-Usage: python stress_test.py <server_url> <data_filepath> [--concurrency N] [--passwords <filepath>]
+Usage: python stress_test.py <server_url> <data_filepath> [--disable-compression] [--concurrency N] [--passwords <filepath>]
 
 Gonna be real, this is pretty jank. It should be 'ok' to make sure nothing totally collapses though.
 
@@ -47,11 +47,12 @@ async def run_game_client(
     slot: PlayerSlot,
     stats: ClientStats,
     semaphore: asyncio.Semaphore,
+    compression,
     password: str = "",
 ) -> None:
     async with semaphore:
         try:
-            await _client_session(server_url, slot, stats, password)
+            await _client_session(server_url, slot, stats, compression, password)
         except Exception as e:
             stats.error = str(e)
 
@@ -60,6 +61,7 @@ async def _client_session(
     server_url: str,
     slot: PlayerSlot,
     stats: ClientStats,
+    compression,
     password: str
 ) -> None:
     client_uuid = str(uuid.uuid4())
@@ -69,7 +71,8 @@ async def _client_session(
     await asyncio.sleep(random.uniform(0, 5))
 
     try:
-        async with websockets.connect(server_url, max_size=10 * 1024 * 1024) as ws:
+        async with websockets.connect(server_url, max_size=10 * 1024 * 1024, compression=compression) as ws:
+            print(f"Extensions: {ws.extensions}")
             # Receive RoomInfo
             raw = await asyncio.wait_for(ws.recv(), timeout=15)
             packets = json.loads(raw)
@@ -214,8 +217,14 @@ async def main() -> None:
     parser.add_argument(
       "--passwords", type=str, default=None,
       help="Path to JSON file with per-slot passwords"
-  )
+    )
+    parser.add_argument(
+      "--disable-compression", action="store_true", default=False,
+      help="Do not use compression when connecting to the AP server"
+    )
     args = parser.parse_args()
+
+    compression = None if args.disable_compression else "deflate"
 
     print(f"Loading slots from: {args.data_filepath}")
     slots = load_slots(args.data_filepath)
@@ -244,7 +253,7 @@ async def main() -> None:
         all_stats.append(stats)
         password = passwords.get(slot.player_name, "")
         task = asyncio.create_task(
-            run_game_client(args.server_url, slot, stats, semaphore, password)
+            run_game_client(args.server_url, slot, stats, semaphore, compression, password)
         )
         tasks.append(task)
 
