@@ -72,7 +72,6 @@ async def _client_session(
 
     try:
         async with websockets.connect(server_url, max_size=10 * 1024 * 1024, compression=compression) as ws:
-            print(f"Extensions: {ws.extensions}")
             # Receive RoomInfo
             raw = await asyncio.wait_for(ws.recv(), timeout=15)
             packets = json.loads(raw)
@@ -138,6 +137,28 @@ async def _client_session(
                         break
 
             await asyncio.gather(send_checks(), drain_recv())
+
+            # Wait for server to finish sending items before disconnecting
+            async def drain_with_timeout() -> None:
+                deadline = asyncio.get_event_loop().time() + 10
+                while True:
+                    remaining = deadline - asyncio.get_event_loop().time()
+                    if remaining <= 0:
+                        break
+                    try:
+                        await asyncio.wait_for(ws.recv(), timeout=remaining)
+                    except asyncio.TimeoutError:
+                        break
+                    except ConnectionClosed:
+                        break
+
+            await drain_with_timeout()
+
+            # Send proper close handshake
+            try:
+                await ws.close()
+            except ConnectionClosed:
+                pass 
 
     except asyncio.TimeoutError:
         stats.error = "Timeout waiting for server response"
