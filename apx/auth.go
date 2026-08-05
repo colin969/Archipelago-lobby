@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
@@ -124,16 +125,12 @@ func (s apxServer) connectAP(ctx context.Context, client *websocket.Conn, reduce
 
 	apConn.SetReadLimit(wsReadLimit)
 
-	log.Println("Waiting for roominfo")
-
 	// Wait for RoomInfo from AP server (just so we know it's ready to accept the Connect message)
 	var roomInfo []map[string]any
 	if err := wsjson.Read(ctx, apConn, &roomInfo); err != nil {
 		apConn.CloseNow()
 		return nil, 0, nil, fmt.Errorf("reading RoomInfo from AP: %w", err)
 	}
-
-	log.Println("Forwarding connect")
 
 	if err := wsjson.Write(ctx, apConn, []any{connectMsg}); err != nil {
 		apConn.CloseNow()
@@ -171,8 +168,6 @@ func (s apxServer) connectAP(ctx context.Context, client *websocket.Conn, reduce
 		}
 	}
 
-	log.Println("Proxying")
-
 	// Proxy AP -> client
 
 	if reduced {
@@ -183,8 +178,8 @@ func (s apxServer) connectAP(ctx context.Context, client *websocket.Conn, reduce
 				var response []json.RawMessage
 				err := wsjson.Read(ctx, apConn, &response)
 				if err != nil {
-					if ctx.Err() == nil {
-						log.Printf("AP read error: %v", err)
+					if !isNormalClose(err) && ctx.Err() == nil {
+						s.logf("AP read error: %v", err)
 					}
 					return
 				}
@@ -213,8 +208,8 @@ func (s apxServer) connectAP(ctx context.Context, client *websocket.Conn, reduce
 			for {
 				msgType, data, err := apConn.Read(ctx)
 				if err != nil {
-					if ctx.Err() == nil {
-						log.Printf("AP read error: %v", err)
+					if !isNormalClose(err) && ctx.Err() == nil {
+						s.logf("AP read error: %v", err)
 					}
 					return
 				}
@@ -254,4 +249,16 @@ func allowReducedMessage(raw json.RawMessage, slotId int) bool {
 	}
 
 	return true
+}
+
+func isNormalClose(err error) bool {
+	if err == nil {
+		return true
+	}
+	status := websocket.CloseStatus(err)
+	if status == websocket.StatusNormalClosure || status == websocket.StatusGoingAway {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "use of closed network connection") || strings.Contains(msg, "context canceled")
 }

@@ -19,14 +19,14 @@ func initMetrics() (*prometheus.Registry, *metrics) {
 				Name: "apx_incoming_packets_total",
 				Help: "Total number of incoming packets per slot and command type",
 			},
-			[]string{"slot", "cmd"},
+			[]string{"room", "slot", "cmd"},
 		),
 		bouncePackets: *promauto.With(reg).NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "apx_bounce_packets_total",
 				Help: "Total number of bounce packets per slot and tag",
 			},
-			[]string{"slot", "tag"},
+			[]string{"room", "slot", "tag"},
 		),
 	}
 

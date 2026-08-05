@@ -498,7 +498,7 @@ async fn get_all_spheres(
         .ok_or_else(|| anyhow!("APX API key not configured"))?;
 
     let client = reqwest::Client::new();
-    let url = format!("{}/api/spheres", apx_api_root);
+    let url = format!("{}/api/{}/spheres", apx_api_root, config.lobby_room_id);
     let resp = client
         .get(&url)
         .header("X-API-Key", apx_api_key)
@@ -529,7 +529,7 @@ async fn get_slot_spheres(
         .ok_or_else(|| anyhow!("APX API key not configured"))?;
 
     let client = reqwest::Client::new();
-    let url = format!("{}/api/spheres/{}", apx_api_root, slot_id);
+    let url = format!("{}/api/{}/spheres/{}", apx_api_root, config.lobby_room_id, slot_id);
     let resp = client
         .get(&url)
         .header("X-API-Key", apx_api_key)

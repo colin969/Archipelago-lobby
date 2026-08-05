@@ -187,7 +187,7 @@ func (s apxServer) serveConn(w http.ResponseWriter, r *http.Request, reduced boo
 		InsecureSkipVerify: true,
 	})
 	if err != nil {
-		s.logf("%v", err)
+		s.logf("client connection: %v", err)
 		return
 	}
 	defer c.CloseNow()
@@ -223,7 +223,9 @@ func (s apxServer) serveConn(w http.ResponseWriter, r *http.Request, reduced boo
 	for {
 		err = wsjson.Read(ctx, c, &messages)
 		if err != nil {
-			s.logf("%v", err)
+			if websocket.CloseStatus(err) != websocket.StatusNormalClosure {
+				s.logf("client read: %v", err)
+			}
 			return
 		}
 

@@ -14,3 +14,7 @@ __pycache__/
 .vscode
 start-community-ap-tools-dev.sh
 /data
+
+file1.txt
+slots_passwords.json
+transplant.json

@@ -388,7 +388,7 @@ function createTrackerTable(tableId)
 
     setInterval(() => {
         table.replaceData("/api/tracker_info");
-    }, 30000);
+    }, 40000);
 }
 
 function forceReviewTableRefresh() {
