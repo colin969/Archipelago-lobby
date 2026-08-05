@@ -106,16 +106,28 @@ fn extract_hashtags(text: &str) -> Vec<String> {
         .collect()
 }
 
-#[get("/rooms")]
+/// Upper bound on `?closed_within=`, in seconds. Client-supplied, so bound it: nobody should be
+/// able to ask for the whole room history through this endpoint.
+const MAX_CLOSED_WITHIN: u32 = 7 * 24 * 60 * 60;
+
+/// Lists open rooms, and — with `?closed_within=<seconds>` — rooms that closed within that window.
+/// The window is clamped to [`MAX_CLOSED_WITHIN`]; omitted or `0` means open rooms only.
+#[get("/rooms?<closed_within>")]
 #[tracing::instrument(skip(_session, ctx))]
 pub(crate) async fn list_open_rooms(
     _session: AdminSession,
+    closed_within: Option<u32>,
     ctx: &State<Context>,
 ) -> ApiResult<Json<RoomListResponse>> {
     let mut conn = ctx.db_pool.get().await?;
 
+    let open_state = match closed_within.unwrap_or(0).min(MAX_CLOSED_WITHIN) {
+        0 => db::OpenState::Open,
+        secs => db::OpenState::OpenOrClosedWithin(secs.into()),
+    };
+
     let (rooms, _) = db::list_rooms(
-        db::RoomFilter::default().with_open_state(db::OpenState::Open),
+        db::RoomFilter::default().with_open_state(open_state),
         None,
         &mut conn,
     )
