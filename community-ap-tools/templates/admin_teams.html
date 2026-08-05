@@ -61,11 +61,11 @@
             </div>
         </div>
 
-        <h3>Rooms</h3>
+        <h3>Lobby Rooms</h3>
         <div id="rooms-list"></div>
         <div class="field-group" style="margin-top:0.5em">
             <div class="field">
-                <span>Room UUID</span>
+                <span>Lobby Room ID</span>
                 <input type="text" id="add-room-id" placeholder="Room UUID" size="36">
             </div>
             <div class="field field-end">
@@ -217,7 +217,7 @@ async function loadRooms() {
         )
     );
     container.replaceChildren(h("table", null,
-        h("thead", null, h("tr", null, h("th", null, "Room ID"), h("th", null, ""))),
+        h("thead", null, h("tr", null, h("th", null, "Lobby Room ID"), h("th", null, ""))),
         h("tbody", null, ...rows),
     ));
 }

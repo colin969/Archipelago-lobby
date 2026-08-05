@@ -102,7 +102,7 @@ function createChecksTable(tableId, slotId, sphereSidebar)
             { column: "sphere", dir: "asc" }
         ],
         columns: [
-            { title: "Sphere", field: "sphere" },
+            { title: "Sphere", field: "sphere", sorter: "number" },
             { title: "Location", field: "location", headerFilter: "input" },
             { title: "Checked", field: "checked", formatter: "tickCross" }
         ]
@@ -173,7 +173,7 @@ function createAllChecksTable(tableId, sphereSidebar) {
             { column: "sphere", dir: "asc" },
         ],
         columns: [
-            { title: "Sphere",   field: "sphere" },
+            { title: "Sphere",   field: "sphere", sorter: "number" },
             { title: "Slot",     field: "slot", headerFilter: "input" },
             { title: "Location", field: "location", headerFilter: "input" },
             { title: "Checked",  field: "checked",  formatter: "tickCross" },
