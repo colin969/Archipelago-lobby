@@ -166,6 +166,7 @@ services:
       APX_API_KEY: "changeme"
       AP_ROOM_HOST: "ap-webhost"
       AP_API_ROOT: "http://ap-webhost:9888"
+      GOEXPERIMENT: "jsonv2"
     env_file:
       - ./.env.community
     ports:
