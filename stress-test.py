@@ -132,7 +132,7 @@ async def _client_session(
                     }])
                     await ws.send(check_packet)
                     stats.checks_sent += 1
-                    await asyncio.sleep(random.uniform(0.5, 1))
+                    await asyncio.sleep(random.uniform(2, 3))
 
             # Drain messages otherwise we'll fail our own timeout never receiving the pong
             async def drain_recv() -> None:
