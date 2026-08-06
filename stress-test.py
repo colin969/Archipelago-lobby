@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Archipelago WebSocket Server Stress Tester
-Usage: python stress_test.py <server_url> <data_filepath> [--disable-compression] [--concurrency N] [--passwords <filepath>]
+Usage: python stress_test.py <server_url> <data_filepath> [--disable-compression] [--concurrency N] [--check-rate N] [--passwords <filepath>]
 
 Gonna be real, this is pretty jank. It should be 'ok' to make sure nothing totally collapses though.
 
@@ -49,11 +49,12 @@ async def run_game_client(
     semaphore: asyncio.Semaphore,
     compression,
     connect_limiter,
+    average_sleep,
     password: str = "",
 ) -> None:
     async with semaphore:
         try:
-            await _client_session(server_url, slot, stats, compression, connect_limiter, password)
+            await _client_session(server_url, slot, stats, compression, connect_limiter, average_sleep, password)
         except Exception as e:
             stats.error = str(e)
 
@@ -64,6 +65,7 @@ async def _client_session(
     stats: ClientStats,
     compression,
     connect_limiter,
+    average_sleep,
     password: str
 ) -> None:
     client_uuid = str(uuid.uuid4())
@@ -71,6 +73,7 @@ async def _client_session(
 
     # Wait our turn, staggered
     await connect_limiter.acquire()
+    await asyncio.sleep(random.uniform(1, 3))
 
     try:
         async with websockets.connect(server_url, max_size=10 * 1024 * 1024, compression=compression) as ws:
@@ -132,7 +135,7 @@ async def _client_session(
                     }])
                     await ws.send(check_packet)
                     stats.checks_sent += 1
-                    await asyncio.sleep(random.uniform(2, 3))
+                    await asyncio.sleep(average_sleep)
 
             # Drain messages otherwise we'll fail our own timeout never receiving the pong
             async def drain_recv() -> None:
@@ -236,6 +239,10 @@ async def main() -> None:
         help="Max simultaneous WebSocket connections (default: 150)"
     )
     parser.add_argument(
+        "--check-rate", type=int, default=50,
+        help="Average checks per second to target across all clients (default: 50) - This is usually optimistic, it will be lower"
+    )
+    parser.add_argument(
       "--passwords", type=str, default=None,
       help="Path to JSON file with per-slot passwords"
     )
@@ -253,6 +260,8 @@ async def main() -> None:
     if not slots:
         print("No valid player/game entries found in file.")
         sys.exit(1)
+
+    average_sleep = min(args.concurrency, len(slots)) / args.check_rate
 
     passwords: dict[str, str] = {}
     if args.passwords:
@@ -272,10 +281,10 @@ async def main() -> None:
     connect_limiter = asyncio.Semaphore(0)
 
     async def release_tokens() -> None:
-        """Release one connection token every ~50ms (20 connects/sec)"""
+        """Release one connection token every ~20ms (50 connects/sec)"""
         for _ in range(len(slots)):
             connect_limiter.release()
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.02)
 
     asyncio.create_task(release_tokens())
 
@@ -284,7 +293,7 @@ async def main() -> None:
         all_stats.append(stats)
         password = passwords.get(slot.player_name, "")
         task = asyncio.create_task(
-            run_game_client(args.server_url, slot, stats, semaphore, compression, connect_limiter, password)
+            run_game_client(args.server_url, slot, stats, semaphore, compression, connect_limiter, average_sleep, password)
         )
         tasks.append(task)
 
