@@ -41,6 +41,26 @@ class ClientStats:
     checks_sent: int = 0
     error: Optional[str] = None
 
+class TokenBucket:
+    """Shared rate limiter across all clients."""
+    def __init__(self, rate: float):
+        self._rate = rate          # tokens per second
+        self._tokens = rate        # start full
+        self._last = time.monotonic()
+        self._lock = asyncio.Lock()
+
+    async def acquire(self) -> None:
+        while True:
+            async with self._lock:
+                now = time.monotonic()
+                elapsed = now - self._last
+                self._last = now
+                self._tokens = min(self._rate, self._tokens + elapsed * self._rate)
+                if self._tokens >= 1:
+                    self._tokens -= 1
+                    return
+                wait = (1 - self._tokens) / self._rate
+            await asyncio.sleep(wait)
 
 async def run_game_client(
     server_url: str,
@@ -49,12 +69,12 @@ async def run_game_client(
     semaphore: asyncio.Semaphore,
     compression,
     connect_limiter,
-    average_sleep,
+    bucket,
     password: str = "",
 ) -> None:
     async with semaphore:
         try:
-            await _client_session(server_url, slot, stats, compression, connect_limiter, average_sleep, password)
+            await _client_session(server_url, slot, stats, compression, connect_limiter, bucket, password)
         except Exception as e:
             stats.error = str(e)
 
@@ -65,7 +85,7 @@ async def _client_session(
     stats: ClientStats,
     compression,
     connect_limiter,
-    average_sleep,
+    bucket,
     password: str
 ) -> None:
     client_uuid = str(uuid.uuid4())
@@ -129,13 +149,13 @@ async def _client_session(
             # Send location checks at roughly 0.75 second intervals
             async def send_checks() -> None:
                 for loc_id in missing_locations:
+                    await bucket.acquire()
                     check_packet = json.dumps([{
                         "cmd": "LocationChecks",
                         "locations": [loc_id],
                     }])
                     await ws.send(check_packet)
                     stats.checks_sent += 1
-                    await asyncio.sleep(average_sleep)
 
             # Drain messages otherwise we'll fail our own timeout never receiving the pong
             async def drain_recv() -> None:
@@ -261,7 +281,7 @@ async def main() -> None:
         print("No valid player/game entries found in file.")
         sys.exit(1)
 
-    average_sleep = min(args.concurrency, len(slots)) / args.check_rate
+    bucket = TokenBucket(rate=args.check_rate)
 
     passwords: dict[str, str] = {}
     if args.passwords:
@@ -293,7 +313,7 @@ async def main() -> None:
         all_stats.append(stats)
         password = passwords.get(slot.player_name, "")
         task = asyncio.create_task(
-            run_game_client(args.server_url, slot, stats, semaphore, compression, connect_limiter, average_sleep, password)
+            run_game_client(args.server_url, slot, stats, semaphore, compression, connect_limiter, bucket, password)
         )
         tasks.append(task)
 
