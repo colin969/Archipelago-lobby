@@ -87,32 +87,39 @@ func (s apxServer) handleGetDataPackage(ctx context.Context, connState *connecti
 		return fmt.Errorf("unmarshalling GetDataPackage: %w", err)
 	}
 
-	games := make([]string, 0)
-	// If no games specified, use all games
 	if len(msg.Games) == 0 {
-		for game := range s.roomInfo.DatapackageChecksums {
-			games = append(games, game)
+		// All games have been requested, send 1 at a time anyway they might be able to handle it, this is bad client behaviour anyway
+		for _, game := range msg.Games {
+			if _, ok := s.roomInfo.DatapackageChecksums[game]; ok {
+				err = s.sendDataPackages(ctx, connState.clientConn, []string{game})
+				if err != nil {
+					return err
+				}
+			}
 		}
+		return nil
 	} else {
-		// Only include games we know exist from the roominfo datapackage checksums map
+		// Good client requesting only some at a time
+		// Apclientpp and other clients can fail if we try and send back in multiple messages, so don't try it
+		games := make([]string, 0)
 		for _, game := range msg.Games {
 			if _, ok := s.roomInfo.DatapackageChecksums[game]; ok {
 				games = append(games, game)
 			}
 		}
+		return s.sendDataPackages(ctx, connState.clientConn, games)
 	}
 
-	// We can uncomment this if we want to delay datapackages again later
+	// We can uncomment this if we want to delay datapackages again later. Need to do before the branches above, extra changes still.
 
 	// if !connState.authenticated {
 	// 	// Don't send datapackages until after authed
 	// 	connState.pendingDatapackGames = append(connState.pendingDatapackGames, games...)
 	// 	return nil
 	// }
-
-	return s.sendDataPackages(ctx, connState.clientConn, games)
 }
 
+// Grab datapackage from AP server and cache locally so we can provide it to clients ourselves
 func (s apxServer) fetchDataPackageFromAPServer(ctx context.Context, game string) (GameData, error) {
 	apConn, _, err := websocket.Dial(ctx, fmt.Sprintf("ws://%s:%d", s.config.APHost, s.config.APPort), nil)
 	if err != nil {

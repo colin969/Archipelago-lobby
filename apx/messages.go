@@ -37,15 +37,16 @@ type RoomInfoMessage struct {
 }
 
 type ConnectMessage struct {
-	Cmd           MessageType    `json:"cmd"`
-	Password      *string        `json:"password"`
-	Game          string         `json:"game"`
-	Name          string         `json:"name"`
-	UUID          string         `json:"uuid"`
-	Version       NetworkVersion `json:"version"`
-	ItemsHandling *int           `json:"items_handling"`
-	Tags          []string       `json:"tags"`
-	SlotData      bool           `json:"slot_data"`
+	Cmd            MessageType    `json:"cmd"`
+	Password       *string        `json:"password"`
+	Game           string         `json:"game"`
+	Name           string         `json:"name"`
+	UUID           string         `json:"uuid"`
+	Version        NetworkVersion `json:"version"`
+	ItemsHandling  *int           `json:"items_handling"`
+	Tags           []string       `json:"tags"`
+	SlotData       bool           `json:"slot_data"`
+	ReducedTraffic bool           `json:"reduced"`
 }
 
 type ConnectionRefusedMessage struct {

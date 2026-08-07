@@ -241,7 +241,9 @@ func (s apxServer) serveConn(w http.ResponseWriter, r *http.Request, reduced boo
 			}
 
 			if err := s.handleMessage(ctx, connState, MessageType(cmd), message); err != nil {
-				s.logf("error handling message %q: %v", cmd, err)
+				if !isNormalClose(err) && ctx.Err() == nil {
+					s.logf("client read: %v", err)
+				}
 			}
 		}
 	}

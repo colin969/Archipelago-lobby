@@ -132,6 +132,8 @@ func (s apxServer) connectAP(ctx context.Context, client *websocket.Conn, reduce
 		return nil, 0, nil, fmt.Errorf("reading RoomInfo from AP: %w", err)
 	}
 
+	// Send connect message
+	connectMsg.ReducedTraffic = reduced
 	if err := wsjson.Write(ctx, apConn, []any{connectMsg}); err != nil {
 		apConn.CloseNow()
 		return nil, 0, nil, fmt.Errorf("forwarding Connect to AP: %w", err)
@@ -170,85 +172,56 @@ func (s apxServer) connectAP(ctx context.Context, client *websocket.Conn, reduce
 
 	// Proxy AP -> client
 
-	if reduced {
-		// Reduced packets sent to client
-		go func() {
-			defer apConn.CloseNow()
-			for {
-				var response []json.RawMessage
-				err := wsjson.Read(ctx, apConn, &response)
-				if err != nil {
-					if !isNormalClose(err) && ctx.Err() == nil {
-						s.logf("AP read error: %v", err)
-					}
-					return
-				}
+	// Avoid any processing on these packets where possible
 
-				// Filter out PrintJSON messages which don't involve this slot
-				filtered := response[:0] // Reuse array to avoid more allocation
-				for _, raw := range response {
-					if allowReducedMessage(raw, slotId) {
-						filtered = append(filtered, raw)
-					}
+	// Allow 30 messages to be queued at a time. Maybe this is awful, unsure.
+	// This should never include datapackages since we handle them ourselves!
+	msgs := make(chan struct {
+		msgType websocket.MessageType
+		data    []byte
+	}, 30)
+
+	// Collect messages from server - We don't want to fail catching a ping from read if the client is slow
+	go func() {
+		defer apConn.CloseNow()
+		defer close(msgs)
+		for {
+			msgType, data, err := apConn.Read(ctx)
+			if err != nil {
+				if !isNormalClose(err) && ctx.Err() == nil {
+					s.logf("AP read error: %v", err)
 				}
-				if len(filtered) > 0 {
-					if err := wsjson.Write(ctx, client, filtered); err != nil {
-						if ctx.Err() == nil {
-							log.Printf("client write error: %v", err)
-						}
-						return
-					}
-				}
+				return
 			}
-		}()
-	} else {
-		// Keep non-reduced proxying as slim as possible
-		go func() {
-			defer apConn.CloseNow()
-			for {
-				msgType, data, err := apConn.Read(ctx)
-				if err != nil {
-					if !isNormalClose(err) && ctx.Err() == nil {
-						s.logf("AP read error: %v", err)
-					}
-					return
-				}
-				if err := client.Write(ctx, msgType, data); err != nil {
-					if ctx.Err() == nil {
-						log.Printf("client write error: %v", err)
-					}
-					return
-				}
+			select {
+			// Space on channel, push there
+			case msgs <- struct {
+				msgType websocket.MessageType
+				data    []byte
+			}{msgType, data}:
+			// Context asked us to exit
+			case <-ctx.Done():
+				return
+			// Client has backed up a lot of messages!
+			default:
+				s.logf("client being too slow :(")
 			}
-		}()
-	}
+		}
+	}()
+
+	// Send messages to client
+	go func() {
+		for msg := range msgs {
+			if err := client.Write(ctx, msg.msgType, msg.data); err != nil {
+				if ctx.Err() == nil {
+					log.Printf("client write error: %v", err)
+				}
+				return
+			}
+		}
+	}()
 
 	return apConn, slotId, &game, nil
-}
-
-func allowReducedMessage(raw json.RawMessage, slotId int) bool {
-	var cmdPeek CmdPeek
-	if err := json.Unmarshal(raw, &cmdPeek); err != nil {
-		return false
-	}
-
-	if cmdPeek.Cmd != "PrintJSON" {
-		return true
-	}
-
-	var peek PrintJSONPeek
-	if err := json.Unmarshal(raw, &peek); err != nil {
-		return false
-	}
-
-	switch peek.Type {
-	case "Join", "Part", "TagsChanged", "ItemSend", "ItemCheat", "Hint":
-		receiving := peek.Receiving != nil && *peek.Receiving == slotId
-		slot := peek.Slot != nil && *peek.Slot == slotId
-		return receiving || slot
-	}
-
-	return true
 }
 
 func isNormalClose(err error) bool {
