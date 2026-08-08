@@ -115,7 +115,7 @@ td {
         <div class="page-wrapper">
             <h2>Helper Dashboard</h2>
             <div class="button-row">
-                <a href="{{ lobby_root_url}}room/{{lobby_room_id}}"><button>Ionium Lobby</button></a>
+                <a href="{{ lobby_root_url}}/room/{{lobby_room_id}}"><button>Ionium Lobby</button></a>
                 <a href="/rooms"><button>Room Settings</button></a>
                 <a href="/deathlinks"><button>Deathlink Settings</button></a>
                 <button onclick="genAllPasswords()">Generate Passwords</button>
@@ -155,6 +155,9 @@ td {
     </body>
 
     <script>
+        window.lobby_root_url = "{{ lobby_root_url }}";
+        window.lobby_room_id = "{{ lobby_room_id }}";
+
         function copySlotHandles(button) {
             const li = button.parentElement;
             const spans = li.querySelectorAll('span[data-discord-id]');

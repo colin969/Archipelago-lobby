@@ -185,6 +185,7 @@ services:
         DOCKER_SRC: community-ap-tools/
     environment:
       LOBBY_ROOT_URL: "http://lobby:8000"
+      LOBBY_PUBLIC_URL: "http://localhost:8000" # Used for lobby links in HTML pages
       LOBBY_API_KEY: "changeme"
       AP_ROOM_HOST: "ap-webhost"
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/aplobby

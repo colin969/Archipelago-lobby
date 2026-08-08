@@ -112,9 +112,13 @@ async fn root_run(
         ))?;
     }
 
+    let lobby_root_url = config.lobby_public_url.as_deref()
+        .unwrap_or(config.lobby_root_url.as_str())
+        .to_string();
+
     let index = RunIndexTpl {
         lobby_room_id: lobby_room.id,
-        lobby_root_url: config.lobby_root_url.to_string(),
+        lobby_root_url,
         slot_passwords,
     };
 
@@ -783,6 +787,7 @@ async fn change_yaml_owner(
 
 pub struct Config {
     pub lobby_root_url: Url,
+    pub lobby_public_url: Option<String>,
     pub lobby_room_id: Uuid,
     pub lobby_api_key: String,
     pub ap_room_id: String,
@@ -806,6 +811,8 @@ async fn main() -> crate::error::Result<()> {
 
     let lobby_root_url =
         std::env::var("LOBBY_ROOT_URL").expect("Provide a `LOBBY_ROOT_URL` env variable");
+    let lobby_public_url = 
+        std::env::var("LOBBY_PUBLIC_URL").ok();
     let lobby_room_id =
         std::env::var("LOBBY_ROOM_ID").expect("Provide a `LOBBY_ROOM_ID` env variable");
     let lobby_api_key =
@@ -847,6 +854,7 @@ async fn main() -> crate::error::Result<()> {
 
     let mut config = Config {
         lobby_root_url: lobby_root_url.parse()?,
+        lobby_public_url,
         lobby_room_id: lobby_room_id.parse()?,
         lobby_api_key,
         ap_room_url,

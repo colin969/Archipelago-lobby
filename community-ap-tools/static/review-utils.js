@@ -307,6 +307,17 @@ function createTrackerTable(tableId)
                 }
             },
             {
+                label: "Copy Patch URL",
+                disabled: function (component) {
+                    return !component.getData().has_patch;
+                },
+                action: function (event, row) {
+                    const { lobby_slot_id } = row.getData();
+                    url = `${window.lobby_root_url}/room/${window.lobby_room_id}/patch/${lobby_slot_id}`;
+                    clipboard.writeText(url);
+                }
+            },
+            {
                 label: "Toggle DeathBlock",
                 action: function (event, row) {
                     const { id, name, game, deathlink_excluded } = row.getData();
