@@ -4,7 +4,7 @@ use crate::{
     index_manager::IndexManager,
     jobs::OptionsDef,
     session::Session,
-    Context, TplContext,
+    Context, TplContext, LobbyConfig,
 };
 use anyhow::anyhow;
 use askama::Template;
@@ -317,6 +317,7 @@ async fn options_gen_api<'a>(
     options_cache: &State<OptionsCache>,
     index_manager: &'a State<IndexManager>,
     ctx: &'a State<Context>,
+    lobby_config: &State<LobbyConfig>,
     session: Session,
     redirect_to: &RedirectTo,
 ) -> Result<OptionsTpl<'a>> {
@@ -354,7 +355,7 @@ async fn options_gen_api<'a>(
     let default_player_name = get_default_player_name(&session, ctx).await;
 
     Ok(OptionsTpl {
-        base: TplContext::from_session("options", session, ctx).await,
+        base: TplContext::from_session("options", session, ctx, lobby_config).await,
         apworlds,
         versions,
         selected_apworld: Some(apworld_name.to_string()),
@@ -385,6 +386,7 @@ async fn options_apworld_versions<'a>(
     options_gen_queue: &State<OptionsGenQueue>,
     options_cache: &State<OptionsCache>,
     ctx: &'a State<Context>,
+    lobby_config: &State<LobbyConfig>,
     session: Session,
     redirect_to: &RedirectTo,
 ) -> Result<OptionsTpl<'a>> {
@@ -409,6 +411,7 @@ async fn options_apworld_versions<'a>(
         options_cache,
         index_manager,
         ctx,
+        lobby_config,
         session,
         redirect_to,
     )
@@ -421,6 +424,7 @@ async fn options_gen<'a>(
     index_manager: &State<IndexManager>,
     ctx: &'a State<Context>,
     session: Session,
+    lobby_config: &State<LobbyConfig>,
 ) -> Result<OptionsTpl<'a>> {
     let index = index_manager.index.read().await;
     let mut apworlds: Vec<(String, String)> = index
@@ -433,7 +437,7 @@ async fn options_gen<'a>(
     let default_player_name = get_default_player_name(&session, ctx).await;
 
     Ok(OptionsTpl {
-        base: TplContext::from_session("options", session, ctx).await,
+        base: TplContext::from_session("options", session, ctx, lobby_config).await,
         apworlds,
         versions: vec![],
         selected_apworld: None,
@@ -538,6 +542,7 @@ async fn edit_yaml<'a>(
     ctx: &'a State<Context>,
     redirect_to: &RedirectTo,
     session: Session,
+    lobby_config: &State<LobbyConfig>,
 ) -> Result<OptionsTpl<'a>> {
     redirect_to.set("/options");
 
@@ -674,7 +679,7 @@ async fn edit_yaml<'a>(
     };
 
     Ok(OptionsTpl {
-        base: TplContext::from_session("options", session, ctx).await,
+        base: TplContext::from_session("options", session, ctx, lobby_config).await,
         apworlds,
         versions,
         selected_apworld: Some(apworld_name),
