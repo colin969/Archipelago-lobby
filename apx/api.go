@@ -480,7 +480,12 @@ func (rm *RoomManager) handleSpheresForSlot(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	locationIDToName := room.apx.datapackages.LocationIDToName[slot.Game]
+	locationIDToName, ok := room.apx.datapackages.LocationIDToName[slot.Game]
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "datapackage not found"})
+		return
+	}
 	checkedLocations := room.checkedLocations[slotId]
 
 	result := make([]SphereResult, 0, len(room.spheres))
@@ -534,7 +539,10 @@ func (rm *RoomManager) handleAllSpheres(w http.ResponseWriter, r *http.Request) 
 			continue
 		}
 
-		locationIDToName := room.apx.datapackages.LocationIDToName[slot.Game]
+		locationIDToName, ok := room.apx.datapackages.LocationIDToName[slot.Game]
+		if !ok {
+			continue
+		}
 		checkedLocations := room.checkedLocations[slotId]
 
 		slotResult := make([]SphereResult, 0, len(room.spheres))
