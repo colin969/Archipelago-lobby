@@ -19,7 +19,7 @@ scrape_configs:
       - targets: ['localhost:9090']
   
   - job_name: 'apx'
-    metrics_path: /api/metrics
+    metrics_path: /metrics
     static_configs:
       - targets: ['apx:9001']
     http_headers:
