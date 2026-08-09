@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"maps"
 	"net/http"
 	"slices"
 	"sync"
@@ -9,6 +10,42 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 )
+
+type fullFeedStore struct {
+	mu            sync.RWMutex
+	fullFeedSlots map[int]struct{}
+}
+
+func newFullFeedStore() *fullFeedStore {
+	return &fullFeedStore{fullFeedSlots: make(map[int]struct{})}
+}
+
+func (ffs *fullFeedStore) Get() map[int]struct{} {
+	ffs.mu.RLock()
+	defer ffs.mu.RUnlock()
+	result := make(map[int]struct{}, len(ffs.fullFeedSlots))
+	maps.Copy(result, ffs.fullFeedSlots)
+	return result
+}
+
+func (ffs *fullFeedStore) Allowed(slotId int) bool {
+	ffs.mu.RLock()
+	defer ffs.mu.RUnlock()
+	_, ok := ffs.fullFeedSlots[slotId]
+	return ok
+}
+
+func (ffs *fullFeedStore) Set(slotId int) {
+	ffs.mu.Lock()
+	defer ffs.mu.Unlock()
+	ffs.fullFeedSlots[slotId] = struct{}{}
+}
+
+func (ffs *fullFeedStore) Delete(slotId int) {
+	ffs.mu.Lock()
+	defer ffs.mu.Unlock()
+	delete(ffs.fullFeedSlots, slotId)
+}
 
 type passwordStore struct {
 	mu        sync.RWMutex
@@ -44,6 +81,7 @@ type apxServer struct {
 	roomInfo     RoomInfoMessage
 	roomPlayers  *RoomPlayers // Immutable
 	passwords    *passwordStore
+	fullFeed     *fullFeedStore
 	bounceInfo   *bounceInfoStore
 	connections  *connectionRegistry
 	datapackages *DataPackageStore
@@ -57,6 +95,7 @@ type registeredClient struct {
 	game       *string
 	cancel     context.CancelFunc
 	clientConn *websocket.Conn
+	reduced    bool
 }
 
 // Stores data from all connected clients which is needed globally
@@ -149,6 +188,38 @@ func (cr *connectionRegistry) BroadcastBounce(ctx context.Context, msg BounceMes
 	msg.Cmd = "Bounced"
 	for _, c := range targets {
 		_ = wsjson.Write(ctx, c.clientConn, []any{msg})
+	}
+}
+
+func (cr *connectionRegistry) SendChatMessageToSlot(ctx context.Context, slotId int, msg string) {
+	message := PrintJsonChatMessage{
+		Cmd: "PrintJSON",
+		Data: []JsonMessagePart{
+			{
+				Type:  "text",
+				Text:  msg,
+				Color: "bold",
+			},
+		},
+		Type:    "Chat",
+		Team:    0,
+		Slot:    slotId,
+		Message: msg,
+	}
+
+	cr.mu.RLock()
+	var targets []*registeredClient
+	for _, clients := range cr.clients {
+		for _, c := range clients {
+			if c.slotId == slotId {
+				targets = append(targets, c)
+			}
+		}
+	}
+	cr.mu.RUnlock()
+
+	for _, c := range targets {
+		_ = wsjson.Write(ctx, c.clientConn, []any{message})
 	}
 }
 
@@ -262,6 +333,8 @@ func (s apxServer) handleMessage(ctx context.Context, connState *connectionState
 			return s.handleBounce(ctx, connState, raw)
 		case MessageTypeConnectUpdate:
 			return s.handleConnectUpdate(ctx, connState, raw)
+		case MessageTypeSay:
+			return s.handleSay(ctx, connState, raw)
 		default:
 			// We're authed, it's a message we don't care about, pass it on
 			if connState.apConn != nil {

@@ -53,6 +53,7 @@ func TestBroadcastBounce(t *testing.T) {
 				game:       &tc.clientGame,
 				clientConn: conn,
 				cancel:     func() {},
+				reduced:    false,
 			}
 
 			reg := newConnectionRegistry()
@@ -105,6 +106,7 @@ func TestBroadcastBounce_SlotExclusions(t *testing.T) {
 				game:       &game,
 				clientConn: conn,
 				cancel:     func() {},
+				reduced:    false,
 			}
 
 			reg := newConnectionRegistry()

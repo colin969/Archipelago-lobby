@@ -38,6 +38,10 @@
                 {% block template_navigation %}
                 {% endblock %}
                 <span class="separator"></span>
+                {% if base.is_admin %}
+                    {% call menu::app_menu_item("Refresh Apworlds", "fa fa-globe", "/worlds/refresh", "refresh-apworlds", base.cur_module) %}{% endcall %}
+                    <span class="separator"></span>
+                {% endif %}
                 {% call menu::app_menu_item("Logout", "fa fa-sign-out", "/auth/logout", "logout", base.cur_module) %}{% endcall %}
             {% else %}
                 {% call menu::app_menu_item("Login", "fa fa-sign-in", "/auth/login", "login", base.cur_module) %}{% endcall %}

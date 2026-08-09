@@ -37,24 +37,35 @@ func (s apxServer) handleConnect(ctx context.Context, connState *connectionState
 
 	connState.slotName = &msg.Name
 
-	// Lobby enabled, enforce lobby passwords
-	if s.config.LobbyEnabled {
-		slotEntry, ok := s.roomPlayers.auth[msg.Name]
-		if !ok {
+	slotEntry, ok := s.roomPlayers.auth[msg.Name]
+	if !ok {
+		errorMsg := ConnectionRefusedMessage{
+			Cmd:    "ConnectionRefused",
+			Errors: []string{"InvalidSlot"},
+		}
+		s.logf("InvalidSlot for %s", msg.Name)
+		return wsjson.Write(ctx, connState.clientConn, []any{errorMsg})
+	}
+	password, ok := s.passwords.Get(slotEntry[1])
+	if !(ok && msg.Password != nil && password == *msg.Password) {
+		errorMsg := ConnectionRefusedMessage{
+			Cmd:    "ConnectionRefused",
+			Errors: []string{"InvalidPassword"},
+		}
+		s.logf("InvalidPassword for %s", msg.Name)
+		return wsjson.Write(ctx, connState.clientConn, []any{errorMsg})
+	}
+
+	// Restrict full feed client access
+	if !connState.reduced {
+		allowed := s.fullFeed.Allowed(slotEntry[1])
+		if !allowed {
+			s.connections.SendChatMessageToSlot(ctx, slotEntry[1], "Restricted access to this port")
 			errorMsg := ConnectionRefusedMessage{
 				Cmd:    "ConnectionRefused",
 				Errors: []string{"InvalidSlot"},
 			}
-			s.logf("InvalidSlot for %s", msg.Name)
-			return wsjson.Write(ctx, connState.clientConn, []any{errorMsg})
-		}
-		password, ok := s.passwords.Get(slotEntry[1])
-		if !(ok && msg.Password != nil && password == *msg.Password) {
-			errorMsg := ConnectionRefusedMessage{
-				Cmd:    "ConnectionRefused",
-				Errors: []string{"InvalidPassword"},
-			}
-			s.logf("InvalidPassword for %s", msg.Name)
+			s.logf("Full feed denial for %s", msg.Name)
 			return wsjson.Write(ctx, connState.clientConn, []any{errorMsg})
 		}
 	}
@@ -78,11 +89,42 @@ func (s apxServer) handleConnect(ctx context.Context, connState *connectionState
 		game:       game,
 		cancel:     connState.cancel,
 		clientConn: connState.clientConn,
+		reduced:    connState.reduced,
 	}
 	s.connections.Register(slotId, &client, msg.Tags)
 	connState.registeredClient = &client
 
 	log.Printf("Connected to %s", msg.Name)
+
+	return nil
+}
+
+func (s apxServer) handleSay(ctx context.Context, connState *connectionState, raw map[string]any) error {
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return fmt.Errorf("marshalling say message: %w", err)
+	}
+
+	var msg SayMessage
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return fmt.Errorf("unmarshalling say message: %w", err)
+	}
+
+	if msg.Text != "" {
+		trimmed := strings.ToLower(strings.TrimSpace(msg.Text))
+		if strings.HasPrefix(trimmed, "!countdown") {
+			s.connections.SendChatMessageToSlot(ctx, connState.registeredClient.slotId, "You're not allowed to do this")
+			return nil
+		}
+		if strings.HasPrefix(trimmed, "!players") {
+			s.connections.SendChatMessageToSlot(ctx, connState.registeredClient.slotId, "You're not allowed to do this")
+			return nil
+		}
+	}
+
+	if connState.apConn != nil {
+		return wsjson.Write(ctx, connState.apConn, []any{raw})
+	}
 
 	return nil
 }

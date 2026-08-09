@@ -120,6 +120,7 @@ td {
                 <a href="/deathlinks"><button>Deathlink Settings</button></a>
                 <button onclick="genAllPasswords()">Generate Passwords</button>
                 <button onclick="openAllChecksTable()">View All Checks</button>
+                <button onclick="resetTable()">Reset Table</button>
             </div>
 
             <div class="review-table-wrapper">
@@ -166,6 +167,13 @@ td {
             navigator.clipboard.writeText(message);
         }
 
+        function resetTable() {
+            Object.keys(localStorage)
+                .filter(key => key.startsWith('tabulator-'))
+                .forEach(key => localStorage.removeItem(key));
+            location.reload();
+        }
+
         function openDeathBlock(slotId, slotName, slotGame, isBlocked) {
             const popup = getPopup();
 
@@ -181,6 +189,41 @@ td {
             yesButton.addEventListener("click", async () => {
                 const method = isBlocked ? 'DELETE' : 'POST';
                 const response = await fetch(`/api/bounce_exclusions/${slotId}/DeathLink`, { method });
+                if (response.ok) {
+                    forceReviewTableRefresh();
+                    popup.remove();
+                } else {
+                    alert("Failed to toggle - " + response.statusText);
+                    popup.remove();
+                }
+            })
+
+            const noButton = document.createElement("button")
+            noButton.innerText = "No"
+            noButton.addEventListener("click", () => popup.remove())
+
+            buttonContainer.appendChild(yesButton)
+            buttonContainer.appendChild(noButton)
+
+            popup.appendChild(confirmationText)
+            popup.appendChild(buttonContainer)
+        }
+
+        function openFullFeed(slotId, slotName, slotGame, isFullFeed) {
+            const popup = getPopup();
+
+            const confirmationText = document.createElement("div");
+            const action = isFullFeed ? "Stop full feed to " : "Allow full feed to "
+            confirmationText.innerText = action + slotName + " playing " + slotGame + ". Are you sure?";
+
+            const buttonContainer = document.createElement("div");
+            buttonContainer.className = "button-row";
+
+            const yesButton = document.createElement("button")
+            yesButton.innerText = "Yes"
+            yesButton.addEventListener("click", async () => {
+                const method = isFullFeed ? 'DELETE' : 'POST';
+                const response = await fetch(`/api/full_feed/${slotId}`, { method });
                 if (response.ok) {
                     forceReviewTableRefresh();
                     popup.remove();
@@ -225,7 +268,14 @@ td {
                 }
 
                 // TODO: Test this with a space in slot name
-                location.href = location.href.split("#")[0] + "/release/" + encodeURIComponent(slotName);
+                actionUrl = location.href.split("#")[0] + "/release/" + encodeURIComponent(slotName);
+                fetch(actionUrl)
+                .then(() => {
+                    alert("Release action submitted to queue")
+                })
+                .catch(err => {
+                    alert(`Failed to complete release action: ${err}`);
+                });
             })
 
             popup.appendChild(confirmationText);
@@ -270,7 +320,14 @@ td {
             hintForm.appendChild(hintButton)
 
             hintForm.addEventListener("submit", () => {
-                location.href = location.href.split("#")[0] + "/" + action + "/" + ty + "/" + encodeURIComponent(slotName) + "/" + encodeURIComponent(hintInput.value)
+                actionUrl = location.href.split("#")[0] + "/" + action + "/" + ty + "/" + encodeURIComponent(slotName) + "/" + encodeURIComponent(hintInput.value)
+                fetch(actionUrl)
+                .then(() => {
+                    alert("Action submitted to queue")
+                })
+                .catch(err => {
+                    alert(`Failed to complete action: ${err}`);
+                });
             })
             popup.appendChild(hintText)
             popup.appendChild(hintForm)
@@ -290,7 +347,11 @@ td {
             passwordDisplay.style.border = "1px solid white"
 
             if (currentPassword) {
-                passwordDisplay.innerText = "Current password: " + currentPassword
+                passwordDisplay.innerText = "Current password: " + currentPassword;
+                passwordDisplay.style.cursor = "pointer"
+                passwordDisplay.addEventListener("click", () => {
+                    navigator.clipboard.writeText(currentPassword);
+                });
             } else {
                 passwordDisplay.innerText = "No password set"
             }

@@ -159,6 +159,8 @@ func startRoomManager(cfg *Config, reg *prometheus.Registry, metrics *metrics) (
 	api.HandleFunc("/refresh_passwords", srv.handlePasswordRefresh).Methods(http.MethodPost)
 	api.HandleFunc("/password/{slotId}", srv.handlePassword).Methods(http.MethodGet)
 	api.HandleFunc("/deathlinks", srv.handleDeathlinks).Methods(http.MethodGet)
+	api.HandleFunc("/full_feed", srv.handleFullFeed).Methods(http.MethodGet)
+	api.HandleFunc("/full_feed/{slotId}", srv.handleFullFeedUser).Methods(http.MethodPost, http.MethodDelete)
 	api.HandleFunc("/bounce_exclusions", srv.handleBounceExclusionsList).Methods(http.MethodGet)
 	api.HandleFunc("/bounce_exclusions/{slotId}/{tag}", srv.handleBounceExclusions).Methods(http.MethodPost, http.MethodDelete)
 	api.HandleFunc("/deathlink_probability", srv.handleProbability).Methods(http.MethodGet, http.MethodPost)
@@ -191,6 +193,7 @@ func (rm *RoomManager) startNewHostedRoom(apRoomId string, lobbyRoomId string, l
 	}
 
 	passwordStore := newPasswordStore()
+	fullFeedStore := newFullFeedStore()
 	connRegistry := newConnectionRegistry()
 	datapackageCache := newDataPackageStore()
 	bounceInfo := newBounceInfoStore()
@@ -206,6 +209,7 @@ func (rm *RoomManager) startNewHostedRoom(apRoomId string, lobbyRoomId string, l
 		roomInfo:     *roomInfo,
 		roomPlayers:  roomPlayers,
 		passwords:    passwordStore,
+		fullFeed:     fullFeedStore,
 		connections:  connRegistry,
 		bounceInfo:   bounceInfo,
 		datapackages: datapackageCache,
@@ -380,6 +384,40 @@ func (rm *RoomManager) handleDeathlinks(w http.ResponseWriter, r *http.Request) 
 	}
 	deathlinks := room.apx.bounceInfo.Get()
 	json.NewEncoder(w).Encode(deathlinks)
+}
+
+func (rm *RoomManager) handleFullFeed(w http.ResponseWriter, r *http.Request) {
+	room, ok := rm.roomFromRequest(w, r)
+	if !ok {
+		return
+	}
+	fullFeed := room.apx.fullFeed.Get()
+	json.NewEncoder(w).Encode(fullFeed)
+}
+
+func (rm *RoomManager) handleFullFeedUser(w http.ResponseWriter, r *http.Request) {
+	room, ok := rm.roomFromRequest(w, r)
+	if !ok {
+		return
+	}
+
+	vars := mux.Vars(r)
+	slotId, err := strconv.Atoi(vars["slotId"])
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid slotId"})
+		return
+	}
+
+	switch r.Method {
+	case http.MethodPost:
+		room.apx.fullFeed.Set(slotId)
+		json.NewEncoder(w).Encode(map[string]any{"full_feed": true})
+
+	case http.MethodDelete:
+		room.apx.fullFeed.Delete(slotId)
+		json.NewEncoder(w).Encode(map[string]any{"full_feed": false})
+	}
 }
 
 func (rm *RoomManager) handleBounceExclusionsList(w http.ResponseWriter, r *http.Request) {

@@ -11,6 +11,7 @@ const (
 	MessageTypeBounce         MessageType = "Bounce"
 	MessageTypeGetDataPackage MessageType = "GetDataPackage"
 	MessageTypeDataPackage    MessageType = "DataPackage"
+	MessageTypeSay            MessageType = "Say"
 )
 
 const (
@@ -69,6 +70,39 @@ type ConnectedMessage struct {
 	SlotData         map[string]any      `json:"slot_data,omitempty"`
 	SlotInfo         map[int]NetworkSlot `json:"slot_info"`
 	HintPoints       int                 `json:"hint_points"`
+}
+
+type SayMessage struct {
+	Cmd  MessageType `json:"cmd"`
+	Text string      `json:"text"`
+}
+
+type PrintJsonChatMessage struct {
+	Cmd     MessageType       `json:"cmd"`
+	Data    []JsonMessagePart `json:"data"`
+	Type    string            `json:"type"`
+	Team    int               `json:"team"`
+	Slot    int               `json:"slot"`
+	Message string            `json:"message"`
+}
+
+type HintStatus int
+
+const (
+	HintUnspecified HintStatus = 0
+	HintNoPriority  HintStatus = 10
+	HintAvoid       HintStatus = 20
+	HintPriority    HintStatus = 30
+	HintFound       HintStatus = 40
+)
+
+type JsonMessagePart struct {
+	Type       string     `json:"type,omitempty"`
+	Text       string     `json:"text,omitempty"`
+	Color      string     `json:"color,omitempty"`
+	Flags      int        `json:"flags,omitempty"`
+	Player     int        `json:"player,omitempty"`
+	HintStatus HintStatus `json:"hint_status,omitempty"`
 }
 
 type BounceMessage struct {

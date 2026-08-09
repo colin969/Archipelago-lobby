@@ -314,7 +314,7 @@ function createTrackerTable(tableId)
                 action: function (event, row) {
                     const { lobby_slot_id } = row.getData();
                     url = `${window.lobby_root_url}/room/${window.lobby_room_id}/patch/${lobby_slot_id}`;
-                    clipboard.writeText(url);
+                    navigator.clipboard.writeText(url);
                 }
             },
             {
@@ -358,7 +358,14 @@ function createTrackerTable(tableId)
                     const { name, game } = row.getData();
                     openAction("give", name, game, "location");
                 }
-            }
+            },
+            {
+                label: "Toggle Full Feed",
+                action: function (event, row) {
+                    const { id, name, game, full_feed } = row.getData();
+                    openFullFeed(id, name, game, full_feed);
+                }
+            },
         ],
         initialSort: [
             { column: "Name", dir:"asc" }
@@ -380,6 +387,7 @@ function createTrackerTable(tableId)
                 return !data.deathlink_excluded;
             }, hozAlign: "center", formatter: "tickCross" },
             { title: "Deaths", field: "deathlinks_sent", bottomCalc: "sum" },
+            { title: "FF", field: "full_feed", formatter: "tickCross", hozAlign: "center" },
         ]
     });
 

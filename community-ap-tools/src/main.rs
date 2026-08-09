@@ -1,4 +1,4 @@
-use std::{collections::HashMap, str::FromStr};
+use std::{collections::{HashMap, HashSet}, str::FromStr};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -123,6 +123,27 @@ async fn root_run(
     };
 
     Ok(index)
+}
+
+async fn fetch_full_feed_slots(config: &Config, room_id: &str) -> crate::error::Result<HashSet<usize>> {
+    let apx_api_root = config
+        .apx_api_root
+        .as_ref()
+        .ok_or_else(|| anyhow!("APX API not configured"))?;
+    let apx_api_key = config
+        .apx_api_key
+        .as_ref()
+        .ok_or_else(|| anyhow!("APX API key not configured"))?;
+
+    let client = reqwest::Client::new();
+    let response = client
+        .get(format!("{}/api/{}/full_feed", apx_api_root, room_id))
+        .header("X-API-Key", apx_api_key)
+        .send()
+        .await?;
+
+    let raw: HashMap<usize, serde_json::Value> = response.json().await?;
+    Ok(raw.into_keys().collect())
 }
 
 async fn fetch_deathlinks(config: &Config, room_id: &str) -> crate::error::Result<HashMap<usize, i32>> {
@@ -318,6 +339,72 @@ async fn proxy_remove_exclusion(
         .delete(format!(
             "{}api/{}/bounce_exclusions/{}/{}",
             apx_api_root, config.lobby_room_id, slot_id, tag_name
+        ))
+        .header("X-API-Key", apx_api_key)
+        .send()
+        .await?;
+
+    // Invalidate tracker info cache
+    *cache.0.lock().unwrap() = None;
+
+    Ok(rocket::http::Status::from_code(response.status().as_u16())
+        .unwrap_or(rocket::http::Status::InternalServerError))
+}
+
+#[rocket::post("/api/full_feed/<slot_id>")]
+async fn add_full_feed(
+    _session: ModeratorSession,
+    slot_id: i32,
+    config: &State<Config>,
+    cache: &State<TrackerInfoCache>,
+) -> crate::error::Result<rocket::http::Status> {
+    let apx_api_root = config
+        .apx_api_root
+        .as_ref()
+        .ok_or_else(|| anyhow!("APX API not configured"))?;
+    let apx_api_key = config
+        .apx_api_key
+        .as_ref()
+        .ok_or_else(|| anyhow!("APX API key not configured"))?;
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!(
+            "{}api/{}/full_feed/{}",
+            apx_api_root, config.lobby_room_id, slot_id
+        ))
+        .header("X-API-Key", apx_api_key)
+        .send()
+        .await?;
+
+    // Invalidate tracker info cache
+    *cache.0.lock().unwrap() = None;
+
+    Ok(rocket::http::Status::from_code(response.status().as_u16())
+        .unwrap_or(rocket::http::Status::InternalServerError))
+}
+
+#[rocket::delete("/api/full_feed/<slot_id>")]
+async fn remove_full_feed(
+    _session: ModeratorSession,
+    slot_id: i32,
+    config: &State<Config>,
+    cache: &State<TrackerInfoCache>,
+) -> crate::error::Result<rocket::http::Status> {
+    let apx_api_root = config
+        .apx_api_root
+        .as_ref()
+        .ok_or_else(|| anyhow!("APX API not configured"))?;
+    let apx_api_key = config
+        .apx_api_key
+        .as_ref()
+        .ok_or_else(|| anyhow!("APX API key not configured"))?;
+
+    let client = reqwest::Client::new();
+    let response = client
+        .delete(format!(
+            "{}api/{}/full_feed/{}",
+            apx_api_root, config.lobby_room_id, slot_id
         ))
         .header("X-API-Key", apx_api_key)
         .send()
@@ -887,7 +974,9 @@ async fn main() -> crate::error::Result<()> {
                 change_yaml_owner,
                 get_deferred_datapackage_games,
                 add_deferred_datapackage_game,
-                remove_deferred_datapackage_game
+                remove_deferred_datapackage_game,
+                add_full_feed,
+                remove_full_feed,
             ],
         )
         .mount("/static", FileServer::from(relative!("static")))

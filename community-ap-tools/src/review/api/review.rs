@@ -9,7 +9,7 @@ use rocket::{State, routes, serde::json::Json};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{Config, TRACKER_CACHE_TTL, TrackerInfoCache, fetch_deathlinks, fetch_exclusions, fetch_incomplete_sphere1s};
+use crate::{Config, TRACKER_CACHE_TTL, TrackerInfoCache, fetch_full_feed_slots, fetch_deathlinks, fetch_exclusions, fetch_incomplete_sphere1s};
 use crate::auth::{AdminSession, LoggedInSession, ModeratorSession};
 use crate::error;
 use crate::guards::{ApRoom, LobbyRoom, MergedSlotInfo};
@@ -441,6 +441,7 @@ async fn get_tracker_info(
     }
 
     let room_id = lobby_room.id.to_string();
+    let full_feed_slots = fetch_full_feed_slots(config, &room_id).await.unwrap_or_default();
     let deathlinks = fetch_deathlinks(config, &room_id).await.unwrap_or_default();
     let exclusions = fetch_exclusions(config, &room_id).await.unwrap_or_default();
     let incomplete_sphere1s: HashSet<usize> = fetch_incomplete_sphere1s(config, &room_id)    
@@ -472,6 +473,7 @@ async fn get_tracker_info(
                 discord_handle: yaml.discord_handle.clone(),
                 discord_id: yaml.discord_id.to_string(),
                 has_patch: yaml.has_patch,
+                full_feed: full_feed_slots.contains(&slot.id)
             }
         })
         .collect();
