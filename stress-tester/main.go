@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -19,13 +20,16 @@ import (
 )
 
 type Stats struct {
-	Connected      atomic.Int64
-	Completed      atomic.Int64
-	ChecksSent     atomic.Int64
-	ChecksReceived atomic.Int64
-	MsgsReceived   atomic.Int64
-	Errors         atomic.Int64
-	BadAuth        atomic.Int64
+	Connected         atomic.Int64
+	TrackersConnected atomic.Int64
+	Completed         atomic.Int64
+	TrackersCompleted atomic.Int64
+	ChecksSent        atomic.Int64
+	ChecksReceived    atomic.Int64
+	MsgsReceived      atomic.Int64
+	Errors            atomic.Int64
+	TrackersErrors    atomic.Int64
+	BadAuth           atomic.Int64
 }
 
 func startStatsPrinter(ctx context.Context, stats *Stats, total int) {
@@ -40,18 +44,23 @@ func startStatsPrinter(ctx context.Context, stats *Stats, total int) {
 				rate := (currentChecksSent - lastChecksSent) / 5
 				lastChecksSent = currentChecksSent
 				totalConnected := stats.Connected.Load()
+				toatlTrackersConnected := stats.TrackersConnected.Load()
+				trackersCompleted := stats.TrackersCompleted.Load()
 				completed := stats.Completed.Load()
 				errors := stats.Errors.Load()
-				stillConnected := totalConnected - (completed + errors)
-				log.Printf("[Progress] connected=%d  completed=%d/%d  checks_sent=%d  checks_processed=%d  send_rate=%d/s  msgs_recv=%d  errors=%d (auth: %d)",
-					stillConnected,
+				trackersErrors := stats.TrackersErrors.Load()
+				clientsConnected := totalConnected - (completed + errors)
+				trackersConnected := toatlTrackersConnected - (trackersCompleted + trackersErrors)
+				log.Printf("[Progress] (clients=%d trackers=%d)  completed=%d/%d  checks_sent=%d  checks_processed=%d  send_rate=%d/s  msgs_recv=%d  errors=%d (auth: %d)",
+					clientsConnected,
+					trackersConnected,
 					completed,
 					total,
 					currentChecksSent,
 					stats.ChecksReceived.Load(),
 					rate,
 					stats.MsgsReceived.Load(),
-					stats.Errors.Load(),
+					errors+trackersErrors,
 					stats.BadAuth.Load(),
 				)
 			case <-ctx.Done():
@@ -136,6 +145,8 @@ func run() error {
 	var stats Stats
 	startStatsPrinter(ctx, &stats, len(slots))
 
+	// Try and ramp up clients slowly over 30 seconds
+	connLimiter := rate.NewLimiter(rate.Limit(cfg.Concurrency/30), 1)
 	sem := make(chan struct{}, cfg.Concurrency)
 	var wg sync.WaitGroup
 
@@ -143,7 +154,26 @@ func run() error {
 		// Wait for a free client spot for concurrency limit
 		sem <- struct{}{}
 		wg.Go(func() {
+			if err := connLimiter.Wait(ctx); err != nil {
+				stats.TrackersErrors.Add(1)
+				return
+			}
+			err := runTrackerClient(ctx, cfg, slotEntry, &stats)
+			if err != nil {
+				stats.TrackersErrors.Add(1)
+				if err.Error() != "auth denied" {
+					log.Printf("client error for player %s: %v", slotEntry.PlayerName, err)
+				}
+			} else {
+				stats.TrackersCompleted.Add(1)
+			}
+		})
+		wg.Go(func() {
 			defer func() { <-sem }()
+			if err := connLimiter.Wait(ctx); err != nil {
+				stats.Errors.Add(1)
+				return
+			}
 			err := runClient(ctx, cfg, limiter, slotEntry, &stats)
 			if err != nil {
 				stats.Errors.Add(1)
@@ -160,18 +190,16 @@ func run() error {
 
 	// Final summary
 	currentChecksSent := stats.ChecksSent.Load()
-	totalConnected := stats.Connected.Load()
 	completed := stats.Completed.Load()
 	errors := stats.Errors.Load()
-	stillConnected := totalConnected - (completed + errors)
-	log.Printf("  [Results] connected=%d  completed=%d/%d  checks_sent=%d  checks_processed=%d msgs_recv=%d  errors=%d (auth: %d)",
-		stillConnected,
+	trackersErrors := stats.TrackersErrors.Load()
+	log.Printf("  [Results] completed=%d/%d  checks_sent=%d  checks_processed=%d msgs_recv=%d  errors=%d (auth: %d)",
 		completed,
 		len(slots),
 		currentChecksSent,
 		stats.ChecksReceived.Load(),
 		stats.MsgsReceived.Load(),
-		stats.Errors.Load(),
+		errors+trackersErrors,
 		stats.BadAuth.Load(),
 	)
 
@@ -245,7 +273,7 @@ func runClient(ctx context.Context, cfg *Config, limiter *rate.Limiter, slotEntr
 		CompressionMode: compressionMode,
 	})
 	if err != nil {
-		return fmt.Errorf("dialing AP: %w", err)
+		return fmt.Errorf("dialing AP Tracker: %w", err)
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "")
 	conn.SetReadLimit(1 << 24)
@@ -367,6 +395,170 @@ func runClient(ctx context.Context, cfg *Config, limiter *rate.Limiter, slotEntr
 				return
 			}
 			stats.ChecksSent.Add(1)
+		}
+	}()
+
+	select {
+	case <-allChecked:
+		return nil
+	case err := <-readErr:
+		return err
+	case err := <-sendErr:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// Try and do some 'vague' representation of a tracker / poptracker client
+func runTrackerClient(ctx context.Context, cfg *Config, slotEntry SlotEntry, stats *Stats) error {
+	compressionMode := websocket.CompressionContextTakeover
+	if cfg.DisableCompression {
+		compressionMode = websocket.CompressionDisabled
+	}
+
+	conn, _, err := websocket.Dial(ctx, cfg.ServerURL, &websocket.DialOptions{
+		CompressionMode: compressionMode,
+	})
+	if err != nil {
+		return fmt.Errorf("dialing AP: %w", err)
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+	conn.SetReadLimit(1 << 24)
+
+	// Read room info
+	var roomInfo []map[string]any
+	if err := wsjson.Read(ctx, conn, &roomInfo); err != nil {
+		return fmt.Errorf("reading first message from AP: %w", err)
+	}
+
+	connectMsg := ConnectMessage{
+		Cmd:      "Connect",
+		Password: slotEntry.Password,
+		Game:     slotEntry.Game,
+		Name:     slotEntry.PlayerName,
+		UUID:     uuid.New().String(),
+		Version: NetworkVersion{
+			Class: "Version",
+			Build: 0,
+			Major: 6,
+			Minor: 7,
+		},
+		ItemsHandling:  7,
+		Tags:           []string{"AP", "NoText"},
+		SlotData:       false,
+		ReducedTraffic: cfg.ReducedTraffic,
+	}
+	if err := wsjson.Write(ctx, conn, []any{connectMsg}); err != nil {
+		return fmt.Errorf("sending Connect from AP: %w", err)
+	}
+
+	var response []map[string]any
+	if err := wsjson.Read(ctx, conn, &response); err != nil {
+		return fmt.Errorf("reading Connected from AP: %w", err)
+	}
+	if len(response) < 1 {
+		return fmt.Errorf("No response from AP for Connected")
+	}
+
+	connectedData, err := json.Marshal(response[0])
+	if err != nil {
+		return fmt.Errorf("marshalling connected: %w", err)
+	}
+
+	var msg ConnectedMessage
+	if err := json.Unmarshal(connectedData, &msg); err != nil {
+		return fmt.Errorf("unmarshalling connected message: %w", err)
+	}
+	stats.TrackersConnected.Add(1)
+	if msg.Cmd != "Connected" {
+		stats.BadAuth.Add(1)
+		return fmt.Errorf("auth denied")
+	}
+
+	slotId := msg.Slot
+
+	// Now we're connected, we can start sending checks and receiving updates
+
+	missingLocations := msg.MissingLocations
+	checkedLocations := make(map[int64]struct{}, len(msg.CheckedLocations))
+	for _, id := range msg.CheckedLocations {
+		checkedLocations[id] = struct{}{}
+	}
+	totalLocations := len(missingLocations) + len(checkedLocations)
+
+	if len(missingLocations) == 0 {
+		return nil
+	}
+
+	readErr := make(chan error, 1)
+	allChecked := make(chan struct{})
+
+	// Wait for responses to know how many the server has checked
+	go func() {
+		for {
+			var msgs []map[string]any
+			if err := wsjson.Read(ctx, conn, &msgs); err != nil {
+				readErr <- err
+				return
+			}
+			for _, m := range msgs {
+				cmd, _ := m["cmd"].(string)
+				stats.MsgsReceived.Add(1)
+				if cmd != "RoomUpdate" {
+					continue
+				}
+				raw, err := json.Marshal(m)
+				if err != nil {
+					readErr <- fmt.Errorf("marshalling RoomUpdate: %w", err)
+					return
+				}
+				var update RoomUpdateMessage
+				if err := json.Unmarshal(raw, &update); err != nil {
+					readErr <- fmt.Errorf("unmarshalling RoomUpdate: %w", err)
+					return
+				}
+				for _, id := range update.CheckedLocations {
+					checkedLocations[id] = struct{}{}
+				}
+				// stats.ChecksReceived.Add(int64(len(update.CheckedLocations)))
+				if len(checkedLocations) >= totalLocations {
+					close(allChecked)
+					return
+				}
+			}
+		}
+	}()
+
+	// Poptracker
+	// Aggressive, 1 slot specific bounce message every 20 seconds
+	sendErr := make(chan error, 1)
+	go func() {
+		// Try and spread them out a bit, each tracker starts really close together and bursts otherwise
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Duration(rand.Int63n(int64(20 * time.Second)))):
+		}
+
+		ticker := time.NewTicker(20 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := wsjson.Write(ctx, conn, []any{map[string]any{
+					"cmd":   "Bounce",
+					"games": []string{},
+					"tags":  []string{},
+					"slots": []int{slotId},
+					"data":  map[string]any{"stress-test": true},
+				}}); err != nil {
+					sendErr <- fmt.Errorf("sending Bounce: %w", err)
+					return
+				}
+			}
 		}
 	}()
 
