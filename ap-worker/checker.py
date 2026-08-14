@@ -43,7 +43,11 @@ class YamlChecker:
                 return {"error": "This doesn't look like an archipelago YAML? Missing player"}
 
             game = yaml['game']
-            name = yaml['name']
+            name = str(yaml['name'])
+            if "{number}" in name.lower():
+                return {"error": "Player name must not contain {number}"}
+            if len(name) > 16:
+                return {"error": "Player name too long - Maximum length is 16 characters"}
             if isinstance(game, str):
                 result, err = check_yaml(game, name, yaml)
             else:
