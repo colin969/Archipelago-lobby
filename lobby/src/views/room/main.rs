@@ -410,7 +410,7 @@ pub async fn download_yamls<'a>(
         let player_name = yaml.sanitized_name();
         let original_file_name = format!("{player_name}.yaml");
 
-        writer.start_file(format!("{}_{}", index, original_file_name), options)?;
+        writer.start_file(original_file_name, options)?;
         writer.write_all(yaml.current_content().as_bytes())?;
     }
 
