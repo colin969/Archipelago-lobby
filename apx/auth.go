@@ -44,7 +44,11 @@ func (s apxServer) handleConnect(ctx context.Context, connState *connectionState
 			Errors: []string{"InvalidSlot"},
 		}
 		s.logf("InvalidSlot for %s", msg.Name)
-		return wsjson.Write(ctx, connState.clientConn, []any{errorMsg})
+		if err := wsjson.Write(ctx, connState.clientConn, []any{errorMsg}); err != nil {
+			_ = connState.clientConn.CloseNow()
+			return err
+		}
+		return connState.clientConn.Close(websocket.StatusNormalClosure, "InvalidSlot")
 	}
 	password, ok := s.passwords.Get(slotEntry[1])
 	if !(ok && msg.Password != nil && password == *msg.Password) {
@@ -53,7 +57,11 @@ func (s apxServer) handleConnect(ctx context.Context, connState *connectionState
 			Errors: []string{"InvalidPassword"},
 		}
 		s.logf("InvalidPassword for %s", msg.Name)
-		return wsjson.Write(ctx, connState.clientConn, []any{errorMsg})
+		if err := wsjson.Write(ctx, connState.clientConn, []any{errorMsg}); err != nil {
+			_ = connState.clientConn.CloseNow()
+			return err
+		}
+		return connState.clientConn.Close(websocket.StatusNormalClosure, "InvalidPassword")
 	}
 
 	// Restrict full feed client access
@@ -66,7 +74,11 @@ func (s apxServer) handleConnect(ctx context.Context, connState *connectionState
 				Errors: []string{"InvalidSlot"},
 			}
 			s.logf("Full feed denial for %s", msg.Name)
-			return wsjson.Write(ctx, connState.clientConn, []any{errorMsg})
+			if err := wsjson.Write(ctx, connState.clientConn, []any{errorMsg}); err != nil {
+				_ = connState.clientConn.CloseNow()
+				return err
+			}
+			return connState.clientConn.Close(websocket.StatusNormalClosure, "FullFeedDenial")
 		}
 	}
 
