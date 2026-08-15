@@ -52,6 +52,7 @@ func (s apxServer) handleConnect(ctx context.Context, connState *connectionState
 		if connState.authFailCount > 10 {
 			return connState.clientConn.Close(websocket.StatusNormalClosure, "InvalidSlot")
 		}
+		return nil
 	}
 	password, ok := s.passwords.Get(slotEntry[1])
 	if !(ok && msg.Password != nil && password == *msg.Password) {
@@ -68,6 +69,7 @@ func (s apxServer) handleConnect(ctx context.Context, connState *connectionState
 		if connState.authFailCount > 10 {
 			return connState.clientConn.Close(websocket.StatusNormalClosure, "InvalidPassword")
 		}
+		return nil
 	}
 
 	// Restrict full feed client access
@@ -88,6 +90,7 @@ func (s apxServer) handleConnect(ctx context.Context, connState *connectionState
 			if connState.authFailCount > 10 {
 				return connState.clientConn.Close(websocket.StatusNormalClosure, "FullFeedDenial")
 			}
+			return nil
 		}
 	}
 
