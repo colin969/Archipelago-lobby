@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 )
 
 const (
@@ -37,12 +38,30 @@ type RoomInfoMessage struct {
 	Time                 float64               `json:"time"`
 }
 
+type StupidUuidType string
+
+func (f *StupidUuidType) UnmarshalJSON(data []byte) error {
+	// Try string first
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		*f = StupidUuidType(s)
+		return nil
+	}
+	// Fall back to int, convert to string
+	var i int64
+	if err := json.Unmarshal(data, &i); err == nil {
+		*f = StupidUuidType(strconv.FormatInt(i, 10))
+		return nil
+	}
+	return fmt.Errorf("uuid: cannot unmarshal %s into string or int", data)
+}
+
 type ConnectMessage struct {
 	Cmd            MessageType    `json:"cmd"`
 	Password       *string        `json:"password"`
 	Game           string         `json:"game"`
 	Name           string         `json:"name"`
-	UUID           string         `json:"uuid"`
+	UUID           StupidUuidType `json:"uuid"`
 	Version        NetworkVersion `json:"version"`
 	ItemsHandling  *int           `json:"items_handling"`
 	Tags           []string       `json:"tags"`
