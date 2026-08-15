@@ -32,6 +32,12 @@ func (s apxServer) handleConnect(ctx context.Context, connState *connectionState
 		return fmt.Errorf("unmarshalling connect message: %w", err)
 	}
 
+	// bullshit multiserver behaviour
+	if msg.SlotData == nil {
+		slotDataDefault := true
+		msg.SlotData = &slotDataDefault
+	}
+
 	log.Printf("connect: game=%q name=%q uuid=%q version=%+v tags=%v slotData=%v",
 		msg.Game, msg.Name, msg.UUID, msg.Version, msg.Tags, msg.SlotData)
 

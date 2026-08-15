@@ -46,7 +46,7 @@ type ConnectMessage struct {
 	Version        NetworkVersion `json:"version"`
 	ItemsHandling  *int           `json:"items_handling"`
 	Tags           []string       `json:"tags"`
-	SlotData       bool           `json:"slot_data"`
+	SlotData       *bool          `json:"slot_data"`
 	ReducedTraffic bool           `json:"reduced"`
 }
 
