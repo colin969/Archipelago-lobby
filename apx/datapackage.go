@@ -88,16 +88,12 @@ func (s apxServer) handleGetDataPackage(ctx context.Context, connState *connecti
 	}
 
 	if len(msg.Games) == 0 {
-		// All games have been requested, send 1 at a time anyway they might be able to handle it, this is bad client behaviour anyway
-		for _, game := range msg.Games {
-			if _, ok := s.roomInfo.DatapackageChecksums[game]; ok {
-				err = s.sendDataPackages(ctx, connState.clientConn, []string{game})
-				if err != nil {
-					return err
-				}
-			}
+		// Client requested all games, send them all together
+		games := make([]string, 0, len(s.roomInfo.DatapackageChecksums))
+		for game := range s.roomInfo.DatapackageChecksums {
+			games = append(games, game)
 		}
-		return nil
+		return s.sendDataPackages(ctx, connState.clientConn, games)
 	} else {
 		// Good client requesting only some at a time
 		// Apclientpp and other clients can fail if we try and send back in multiple messages, so don't try it
