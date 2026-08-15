@@ -232,6 +232,7 @@ type connectionState struct {
 	reduced              bool
 	pendingDatapackGames []string
 	registeredClient     *registeredClient
+	authFailCount        int
 }
 
 type MessageType string
@@ -281,6 +282,7 @@ func (s apxServer) serveConn(w http.ResponseWriter, r *http.Request, reduced boo
 		clientConn:           c,
 		reduced:              reduced,
 		pendingDatapackGames: []string{},
+		authFailCount:        0,
 	}
 	defer func() {
 		if connState.registeredClient != nil {

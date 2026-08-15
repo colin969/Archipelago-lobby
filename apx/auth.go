@@ -48,7 +48,10 @@ func (s apxServer) handleConnect(ctx context.Context, connState *connectionState
 			_ = connState.clientConn.CloseNow()
 			return err
 		}
-		return connState.clientConn.Close(websocket.StatusNormalClosure, "InvalidSlot")
+		connState.authFailCount += 1
+		if connState.authFailCount > 10 {
+			return connState.clientConn.Close(websocket.StatusNormalClosure, "InvalidSlot")
+		}
 	}
 	password, ok := s.passwords.Get(slotEntry[1])
 	if !(ok && msg.Password != nil && password == *msg.Password) {
@@ -61,7 +64,10 @@ func (s apxServer) handleConnect(ctx context.Context, connState *connectionState
 			_ = connState.clientConn.CloseNow()
 			return err
 		}
-		return connState.clientConn.Close(websocket.StatusNormalClosure, "InvalidPassword")
+		connState.authFailCount += 1
+		if connState.authFailCount > 10 {
+			return connState.clientConn.Close(websocket.StatusNormalClosure, "InvalidPassword")
+		}
 	}
 
 	// Restrict full feed client access
@@ -78,7 +84,10 @@ func (s apxServer) handleConnect(ctx context.Context, connState *connectionState
 				_ = connState.clientConn.CloseNow()
 				return err
 			}
-			return connState.clientConn.Close(websocket.StatusNormalClosure, "FullFeedDenial")
+			connState.authFailCount += 1
+			if connState.authFailCount > 10 {
+				return connState.clientConn.Close(websocket.StatusNormalClosure, "FullFeedDenial")
+			}
 		}
 	}
 
