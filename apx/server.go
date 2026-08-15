@@ -275,7 +275,6 @@ func (s apxServer) serveConn(w http.ResponseWriter, r *http.Request, reduced boo
 		return
 	}
 
-	var messages []map[string]any
 	connState := &connectionState{
 		authenticated:        false,
 		cancel:               cancel,
@@ -294,7 +293,7 @@ func (s apxServer) serveConn(w http.ResponseWriter, r *http.Request, reduced boo
 	}()
 
 	for {
-		messages = nil
+		var messages []map[string]any
 		err = wsjson.Read(ctx, c, &messages)
 		if err != nil {
 			if websocket.CloseStatus(err) != websocket.StatusNormalClosure {
