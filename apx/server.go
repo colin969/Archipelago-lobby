@@ -294,6 +294,7 @@ func (s apxServer) serveConn(w http.ResponseWriter, r *http.Request, reduced boo
 	}()
 
 	for {
+		messages = nil
 		err = wsjson.Read(ctx, c, &messages)
 		if err != nil {
 			if websocket.CloseStatus(err) != websocket.StatusNormalClosure {
