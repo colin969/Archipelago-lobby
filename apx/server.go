@@ -184,6 +184,17 @@ func (cr *connectionRegistry) BroadcastBounce(ctx context.Context, msg BounceMes
 	}
 	cr.mu.RUnlock()
 
+	if msg.Tags == nil {
+		msg.Tags = []string{}
+	}
+
+	if msg.Games == nil {
+		msg.Games = []string{}
+	}
+
+	if msg.Slots == nil {
+		msg.Slots = []int{}
+	}
 	// Content is the same, just a different cmd sending out
 	msg.Cmd = "Bounced"
 	for _, c := range targets {
