@@ -21,6 +21,46 @@ type PrintJSONPeek struct {
 	Type      string `json:"type"`
 }
 
+func (s apxServer) handleAuthedConnect(ctx context.Context, connState *connectionState, raw map[string]any) error {
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return fmt.Errorf("marshalling connect message: %w", err)
+	}
+
+	var msg ConnectMessage
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return fmt.Errorf("unmarshalling connect message: %w", err)
+	}
+
+	// bullshit multiserver behaviour
+	if msg.SlotData == nil {
+		slotDataDefault := true
+		msg.SlotData = &slotDataDefault
+	}
+
+	log.Printf("reconnect (authed): game=%q name=%q uuid=%q version=%+v tags=%v slotData=%v",
+		msg.Game, msg.Name, msg.UUID, msg.Version, msg.Tags, msg.SlotData)
+
+	// If they're trying to switch slots, drop the connection. Shouldn't break anything important.
+	if connState.slotName != nil && *connState.slotName != msg.Name {
+		s.logf("slot switch attempt from %q to %q, dropping", *connState.slotName, msg.Name)
+		return connState.clientConn.Close(websocket.StatusNormalClosure, "SlotSwitch")
+	}
+
+	// Don't allow to change from reduced to full feed or vice versa
+	msg.ReducedTraffic = connState.reduced
+
+	// Send on to AP, they'll still expect a Connected message back
+	if err := wsjson.Write(ctx, connState.apConn, []any{msg}); err != nil {
+		return fmt.Errorf("forwarding reconnect to AP: %w", err)
+	}
+
+	// Update tags on existing registration in case they changed
+	s.connections.UpdateTags(connState.registeredClient, msg.Tags)
+
+	return nil
+}
+
 func (s apxServer) handleConnect(ctx context.Context, connState *connectionState, raw map[string]any) error {
 	data, err := json.Marshal(raw)
 	if err != nil {
