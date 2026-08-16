@@ -251,6 +251,7 @@ func (s apxServer) connectAP(ctx context.Context, client *websocket.Conn, reduce
 		return nil, 0, nil, fmt.Errorf("forwarding Connect to AP: %w", err)
 	}
 
+	// Preserves key order. Thanks AHIT.
 	// Read Connected (or ConnectionRefused) response from AP
 	var response []json.RawMessage
 	if err := wsjson.Read(ctx, apConn, &response); err != nil {
