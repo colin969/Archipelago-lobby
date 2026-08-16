@@ -252,7 +252,7 @@ func (s apxServer) connectAP(ctx context.Context, client *websocket.Conn, reduce
 	}
 
 	// Read Connected (or ConnectionRefused) response from AP
-	var response []map[string]any
+	var response []json.RawMessage
 	if err := wsjson.Read(ctx, apConn, &response); err != nil {
 		apConn.CloseNow()
 		return nil, 0, nil, fmt.Errorf("reading Connected from AP: %w", err)
@@ -266,19 +266,20 @@ func (s apxServer) connectAP(ctx context.Context, client *websocket.Conn, reduce
 
 	slotId := 0
 	game := ""
-	for _, msg := range response {
-		if cmd, ok := msg["cmd"].(string); ok && cmd == "Connected" {
-			if slot, ok := msg["slot"].(float64); ok {
-				slotId = int(slot)
-			}
-			if slotInfo, ok := msg["slot_info"].(map[string]any); ok {
-				slotKey := fmt.Sprintf("%d", slotId)
-				if slotData, ok := slotInfo[slotKey].(map[string]any); ok {
-					if g, ok := slotData["game"].(string); ok {
-						game = g
-					}
-				}
-			}
+	for _, raw := range response {
+		var msg struct {
+			Cmd      string `json:"cmd"`
+			Slot     int    `json:"slot"`
+			SlotInfo map[string]struct {
+				Game string `json:"game"`
+			} `json:"slot_info"`
+		}
+		if err := json.Unmarshal(raw, &msg); err != nil || msg.Cmd != "Connected" {
+			continue
+		}
+		slotId = msg.Slot
+		if slotData, ok := msg.SlotInfo[fmt.Sprintf("%d", slotId)]; ok {
+			game = slotData.Game
 		}
 	}
 
