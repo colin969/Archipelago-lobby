@@ -127,7 +127,7 @@ func (s apxServer) handleBounce(ctx context.Context, connState *connectionState,
 
 	// Record types of tags sent by each slot
 	for _, tag := range msg.Tags {
-		s.metrics.bouncePackets.WithLabelValues(s.lobbyRoomId, *connState.slotName, tag).Inc()
+		s.metrics.bouncePackets.WithLabelValues(s.lobbyRoomId, *connState.slotName, *connState.registeredClient.game, tag).Inc()
 	}
 
 	// Deathlink packets have extra options for blocking and probability limiting, handle seperate

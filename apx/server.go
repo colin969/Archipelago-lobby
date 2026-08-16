@@ -275,6 +275,9 @@ func (s apxServer) serveConn(w http.ResponseWriter, r *http.Request, reduced boo
 	}
 	defer c.CloseNow()
 
+	s.metrics.connectedClients.WithLabelValues(s.lobbyRoomId).Inc()
+	defer s.metrics.connectedClients.WithLabelValues(s.lobbyRoomId).Dec()
+
 	c.SetReadLimit(wsReadLimit)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -314,6 +317,10 @@ func (s apxServer) serveConn(w http.ResponseWriter, r *http.Request, reduced boo
 		}
 
 		for _, message := range messages {
+			// Uncomment to add raw printing
+			// raw, _ := json.Marshal(message)
+			// s.logf("raw message: %s", raw)
+
 			cmd, ok := message["cmd"].(string)
 			if !ok {
 				s.logf("message missing or invalid cmd field: %v", message)
@@ -321,7 +328,7 @@ func (s apxServer) serveConn(w http.ResponseWriter, r *http.Request, reduced boo
 			}
 
 			if connState.authenticated {
-				s.metrics.incomingPackets.WithLabelValues(s.lobbyRoomId, *connState.slotName, cmd).Inc()
+				s.metrics.incomingPackets.WithLabelValues(s.lobbyRoomId, *connState.slotName, *connState.registeredClient.game, cmd).Inc()
 			}
 
 			if err := s.handleMessage(ctx, connState, MessageType(cmd), message); err != nil {
@@ -344,6 +351,8 @@ func (s apxServer) handleMessage(ctx context.Context, connState *connectionState
 		switch cmd {
 		case MessageTypeBounce:
 			return s.handleBounce(ctx, connState, raw)
+		case MessageTypeConnect:
+			return s.handleAuthedConnect(ctx, connState, raw)
 		case MessageTypeConnectUpdate:
 			return s.handleConnectUpdate(ctx, connState, raw)
 		case MessageTypeSay:
@@ -353,7 +362,6 @@ func (s apxServer) handleMessage(ctx context.Context, connState *connectionState
 			if connState.apConn != nil {
 				return wsjson.Write(ctx, connState.apConn, []any{raw})
 			}
-			s.logf("unknown command: %q", cmd)
 			return nil
 		}
 	} else {

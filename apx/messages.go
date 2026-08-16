@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"strconv"
 )
 
@@ -38,22 +39,52 @@ type RoomInfoMessage struct {
 	Time                 float64               `json:"time"`
 }
 
-type StupidUuidType string
+// Follow Multiserver out of spec behaviour
+type StringOrBigInt string
 
-func (f *StupidUuidType) UnmarshalJSON(data []byte) error {
+func (f *StringOrBigInt) UnmarshalJSON(data []byte) error {
 	// Try string first
 	var s string
 	if err := json.Unmarshal(data, &s); err == nil {
-		*f = StupidUuidType(s)
+		*f = StringOrBigInt(s)
 		return nil
 	}
 	// Fall back to int, convert to string
 	var i int64
 	if err := json.Unmarshal(data, &i); err == nil {
-		*f = StupidUuidType(strconv.FormatInt(i, 10))
+		*f = StringOrBigInt(strconv.FormatInt(i, 10))
+		return nil
+	}
+	// Fall back to big.Int for numbers exceeding int64 range
+	var b big.Int
+	if err := json.Unmarshal(data, &b); err == nil {
+		*f = StringOrBigInt(b.String())
 		return nil
 	}
 	return fmt.Errorf("uuid: cannot unmarshal %s into string or int", data)
+}
+
+// Follow Multiserver out of spec behaviour
+type IntOrString int
+
+func (f *IntOrString) UnmarshalJSON(data []byte) error {
+	// Try int first
+	var i int64
+	if err := json.Unmarshal(data, &i); err == nil {
+		*f = IntOrString(i)
+		return nil
+	}
+	// Fall back to string, convert to int
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		parsed, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			return fmt.Errorf("version number: cannot parse string %q as int: %w", s, err)
+		}
+		*f = IntOrString(parsed)
+		return nil
+	}
+	return fmt.Errorf("version number: cannot unmarshal %s into int or string", data)
 }
 
 type ConnectMessage struct {
@@ -61,7 +92,7 @@ type ConnectMessage struct {
 	Password       *string        `json:"password"`
 	Game           string         `json:"game"`
 	Name           string         `json:"name"`
-	UUID           StupidUuidType `json:"uuid"`
+	UUID           StringOrBigInt `json:"uuid"`
 	Version        NetworkVersion `json:"version"`
 	ItemsHandling  *int           `json:"items_handling"`
 	Tags           []string       `json:"tags"`
@@ -204,8 +235,8 @@ func (ns *NetworkSlotArray) UnmarshalJSON(data []byte) error {
 }
 
 type NetworkVersion struct {
-	Class string `json:"class"`
-	Major int    `json:"major"`
-	Minor int    `json:"minor"`
-	Build int    `json:"build"`
+	Class string      `json:"class"`
+	Major IntOrString `json:"major"`
+	Minor IntOrString `json:"minor"`
+	Build IntOrString `json:"build"`
 }

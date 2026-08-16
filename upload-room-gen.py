@@ -61,6 +61,9 @@ def main():
     if archipelago_prefix == "":
       raise Exception("No .archipelago found in zip")
 
+    seed = re.sub(r'^AP[_-]', '', os.path.basename(archipelago_prefix))
+    pattern = re.compile(r"AP[-_]" + re.escape(seed) + r"[-_]P(\d+)[-_]")
+
     # Create new gen folder
     gen_id = str(uuid.uuid4())
     gen_folder = os.path.join(SCRIPT_DIR, "tmp", "gen-output", gen_id)
@@ -71,14 +74,15 @@ def main():
 
     # Gather a list of patch filepaths tied to their slot names, copy them into the gen output folder
     patch_files = {}
-    pattern = re.compile(r"^" + re.escape(archipelago_prefix) + r"_P(\d+)_")
 
     for f in files:
-      match = pattern.match(f)
-      if match:
-        slot_num = int(match.group(1))
-        patch_files[slot_num] = os.path.basename(f)
-        shutil.copy(f, os.path.join(gen_folder, os.path.basename(f)))
+        basename = os.path.basename(f)
+        match = pattern.search(basename)
+        print(f"  {basename!r} -> {'MATCH slot ' + match.group(1) if match else 'no match'}")
+        if match:
+            slot_num = int(match.group(1))
+            patch_files[slot_num] = basename
+            shutil.copy(f, os.path.join(gen_folder, basename))
 
     print("Creating new fake generation")
 
