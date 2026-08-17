@@ -287,7 +287,11 @@ function createTrackerTable(tableId)
                         openPasswordPopup(lobby_slot_id, name, password);
                     })
                     .catch((err) => {
-                        alert(err)
+                        if (err?.status === 404) {
+                            openPasswordPopup(lobby_slot_id, name, "None");
+                        } else {
+                            alert(err);
+                        }
                     })
                 }
             },
