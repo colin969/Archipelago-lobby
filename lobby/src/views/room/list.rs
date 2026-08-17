@@ -42,7 +42,7 @@ async fn my_rooms<'a>(
     .await?;
 
     Ok(ListRoomsTpl {
-        base: TplContext::from_session("rooms", session.0, ctx, lobby_config).await,
+        base: TplContext::from_session("rooms", session.0, ctx, lobby_config, Some("All Rooms".to_string())).await,
         rooms,
         current_page,
         max_pages,

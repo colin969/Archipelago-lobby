@@ -77,10 +77,11 @@ pub struct TplContext<'a> {
     warning_msg: Vec<String>,
     css_version: &'a str,
     js_version: &'a str,
+    page_title: String,
 }
 
 impl<'a> TplContext<'a> {
-    pub async fn from_session(module: &'a str, session: Session, ctx: &Context, lobby_config: &LobbyConfig) -> Self {
+    pub async fn from_session(module: &'a str, session: Session, ctx: &Context, lobby_config: &LobbyConfig, page_title: Option<String>) -> Self {
         Self {
             cur_module: module,
             is_admin: session.is_admin,
@@ -91,6 +92,10 @@ impl<'a> TplContext<'a> {
             css_version: CSS_VERSION,
             js_version: JS_VERSION,
             admin_rooms_only: lobby_config.admin_rooms_only,
+            page_title: page_title.map_or_else(
+                || "Archipelago Lobby".to_string(),
+                |name| format!("Archipelago Lobby - {}", name),
+            ),
         }
     }
 }

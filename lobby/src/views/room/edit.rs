@@ -38,7 +38,7 @@ pub async fn create_room<'a>(
         return Err(anyhow::anyhow!("Room creation is restricted to admins only").into());
     }
     let current_user_id = session.user_id();
-    let base = TplContext::from_session("create-room", session.0, ctx, lobby_config).await;
+    let base = TplContext::from_session("create-room", session.0, ctx, lobby_config, Some("Create New Room".to_string())).await;
     let index = index_manager.index.read().await;
 
     let form_builder = if let Some(template_id) = from_template {
@@ -122,7 +122,7 @@ pub async fn edit_room<'a>(
     }
 
     let index = index_manager.index.read().await;
-    let base = TplContext::from_session("room", session.0, ctx, lobby_config).await;
+    let base = TplContext::from_session("room", session.0, ctx, lobby_config, Some(format!("{} - Edit Room", room.settings.name))).await;
 
     Ok(EditRoom {
         room_settings_form: RoomSettingsBuilder::new_with_room(

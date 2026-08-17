@@ -341,6 +341,7 @@ async fn options_gen_api<'a>(
     if !versions.contains(&version.to_string()) {
         Err(anyhow!("Unknown version for this apworld"))?
     }
+    let display_name = apworld.display_name.clone();
     drop(index);
 
     let parsed_version = Version::from_str(&version)?;
@@ -355,7 +356,7 @@ async fn options_gen_api<'a>(
     let default_player_name = get_default_player_name(&session, ctx).await;
 
     Ok(OptionsTpl {
-        base: TplContext::from_session("options", session, ctx, lobby_config).await,
+        base: TplContext::from_session("options", session, ctx, lobby_config, Some(format!("Options Generator - {}", display_name))).await,
         apworlds,
         versions,
         selected_apworld: Some(apworld_name.to_string()),
@@ -437,7 +438,7 @@ async fn options_gen<'a>(
     let default_player_name = get_default_player_name(&session, ctx).await;
 
     Ok(OptionsTpl {
-        base: TplContext::from_session("options", session, ctx, lobby_config).await,
+        base: TplContext::from_session("options", session, ctx, lobby_config, Some("Options Generator".to_string())).await,
         apworlds,
         versions: vec![],
         selected_apworld: None,
@@ -679,7 +680,7 @@ async fn edit_yaml<'a>(
     };
 
     Ok(OptionsTpl {
-        base: TplContext::from_session("options", session, ctx, lobby_config).await,
+        base: TplContext::from_session("options", session, ctx, lobby_config, None).await,
         apworlds,
         versions,
         selected_apworld: Some(apworld_name),
