@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"maps"
 	"net/http"
 	"slices"
@@ -319,8 +318,8 @@ func (s apxServer) serveConn(w http.ResponseWriter, r *http.Request, reduced boo
 
 		for _, message := range messages {
 			// Uncomment to add raw printing
-			raw, _ := json.Marshal(message)
-			s.logf("raw message: %s", raw)
+			// raw, _ := json.Marshal(message)
+			// s.logf("raw message: %s", raw)
 
 			cmd, ok := message["cmd"].(string)
 			if !ok {
