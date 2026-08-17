@@ -294,6 +294,8 @@ func (rm *RoomManager) startNewHostedRoom(apRoomId string, lobbyRoomId string, l
 		errc <- reducedServer.Serve(wsReducedListener)
 	}()
 
+	log.Printf("Opened room: %s", lobbyRoomId)
+
 	// Wait until a server errors, or cancel is called
 	select {
 	case err := <-errc:

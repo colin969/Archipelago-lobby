@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -47,18 +46,6 @@ func run() error {
 		return err
 	}
 
-	wsListener, err := net.Listen("tcp", cfg.ListenAddr)
-	if err != nil {
-		return err
-	}
-	log.Printf("listening on ws://%v", wsListener.Addr())
-
-	wsReducedListener, err := net.Listen("tcp", cfg.ReducedListenAddr)
-	if err != nil {
-		return err
-	}
-	log.Printf("reduced listening on ws://%v", wsReducedListener.Addr())
-
 	reg, metrics := initMetrics()
 	rm, router := startRoomManager(cfg, reg, metrics)
 
@@ -70,14 +57,17 @@ func run() error {
 	}
 
 	go func() {
-		rm.startNewHostedRoom(cfg.ApRoomId, cfg.LobbyRoomId, &cfg.ListenAddr, &cfg.ReducedListenAddr)
+		err := rm.startNewHostedRoom(cfg.ApRoomId, cfg.LobbyRoomId, &cfg.ListenAddr, &cfg.ReducedListenAddr)
+		if err != nil {
+			log.Fatalf("%v", err)
+		}
 	}()
 
-	log.Printf("API server listening on http://%s", cfg.ApiListenAddr)
 	if err := s.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Printf("API server error: %v", err)
 		return err
 	}
+	log.Printf("API server listening on http://%s", cfg.ApiListenAddr)
 
 	return nil
 }
