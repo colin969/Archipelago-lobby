@@ -20,6 +20,11 @@ type GetDataPackageMessage struct {
 	Games []string    `json:"games"`
 }
 
+type EncodedDataPackageMessage struct {
+	Cmd  MessageType              `json:"cmd"`
+	Data EncodedDataPackageObject `json:"data"`
+}
+
 type DataPackageMessage struct {
 	Cmd  MessageType       `json:"cmd"`
 	Data DataPackageObject `json:"data"`
@@ -29,23 +34,45 @@ type DataPackageObject struct {
 	Games map[string]GameData `json:"games"`
 }
 
-// Immutable
-type DataPackageStore struct {
-	packages         map[string]GameData         // keyed by game name
-	ItemIDToName     map[string]map[int64]string // game -> id -> name
-	LocationIDToName map[string]map[int64]string // game -> id -> name
+type EncodedDataPackageObject struct {
+	Games map[string]json.RawMessage `json:"games"`
 }
 
-func newDataPackageStore() *DataPackageStore {
+// Immutable
+type DataPackageStore struct {
+	singleRepOptimization bool                        // Allow single game requests caching, doubles memory usage
+	packages              map[string]json.RawMessage  // Raw encoded datapackages keyed by game name
+	singleResponses       map[string]json.RawMessage  // Pre-built response for single-game requests
+	ItemIDToName          map[string]map[int64]string // game -> id -> name
+	LocationIDToName      map[string]map[int64]string // game -> id -> name
+}
+
+func newDataPackageStore(singleRepOptimization bool) *DataPackageStore {
 	return &DataPackageStore{
-		packages:         make(map[string]GameData),
-		ItemIDToName:     make(map[string]map[int64]string),
-		LocationIDToName: make(map[string]map[int64]string),
+		singleRepOptimization: singleRepOptimization,
+		packages:              make(map[string]json.RawMessage),
+		singleResponses:       make(map[string]json.RawMessage),
+		ItemIDToName:          make(map[string]map[int64]string),
+		LocationIDToName:      make(map[string]map[int64]string),
 	}
 }
 
-func (ds *DataPackageStore) AddDataPackage(game string, gd GameData) {
-	ds.packages[game] = gd
+func (ds *DataPackageStore) AddDataPackage(game string, gd GameData) error {
+	encodedData, err := json.Marshal(gd)
+	if err != nil {
+		return err
+	}
+	ds.packages[game] = encodedData
+
+	if ds.singleRepOptimization {
+		encodedKey, _ := json.Marshal(game)
+		msg := []byte(`[{"cmd":"DataPackage","data":{"games":{`)
+		msg = append(msg, encodedKey...)
+		msg = append(msg, ':')
+		msg = append(msg, encodedData...)
+		msg = append(msg, `}}}]`...)
+		ds.singleResponses[game] = msg
+	}
 
 	// Populate global item id to name
 	itemIDToName := make(map[int64]string, len(gd.ItemNameToID))
@@ -60,6 +87,8 @@ func (ds *DataPackageStore) AddDataPackage(game string, gd GameData) {
 		locationIDToName[id] = name
 	}
 	ds.LocationIDToName[game] = locationIDToName
+
+	return nil
 }
 
 // MUST be called before server is live to other users. CANNOT be called safely after.
@@ -161,20 +190,32 @@ func (s apxServer) fetchDataPackageFromAPServer(ctx context.Context, game string
 	return GameData{}, fmt.Errorf("DataPackage response did not contain game %q", game)
 }
 
+// Stitch together to avoid doing any json ops on the already encoded datapackage
 func (s apxServer) sendDataPackages(ctx context.Context, client *websocket.Conn, games []string) error {
-	result := DataPackageObject{Games: make(map[string]GameData)}
+	if s.datapackages.singleRepOptimization && len(games) == 1 {
+		raw, ok := s.datapackages.singleResponses[games[0]]
+		if !ok {
+			return fmt.Errorf("unknown datapackage for %q", games[0])
+		}
+		return client.Write(ctx, websocket.MessageText, raw)
+	}
 
-	for _, game := range games {
-		gd, ok := s.datapackages.packages[game]
+	msg := []byte(`[{"cmd":"DataPackage","data":{"games":{`)
+
+	for i, game := range games {
+		raw, ok := s.datapackages.packages[game]
 		if !ok {
 			return fmt.Errorf("unknown datapackage for %q", game)
 		}
-		result.Games[game] = gd
+		if i > 0 {
+			msg = append(msg, ',')
+		}
+		encodedKey, _ := json.Marshal(game)
+		msg = append(msg, encodedKey...)
+		msg = append(msg, ':')
+		msg = append(msg, raw...)
 	}
 
-	resp := DataPackageMessage{
-		Cmd:  MessageTypeDataPackage,
-		Data: result,
-	}
-	return wsjson.Write(ctx, client, []any{resp})
+	msg = append(msg, `}}}]`...)
+	return client.Write(ctx, websocket.MessageText, msg)
 }

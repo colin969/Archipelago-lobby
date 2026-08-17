@@ -195,7 +195,7 @@ func (rm *RoomManager) startNewHostedRoom(apRoomId string, lobbyRoomId string, l
 	passwordStore := newPasswordStore()
 	fullFeedStore := newFullFeedStore()
 	connRegistry := newConnectionRegistry()
-	datapackageCache := newDataPackageStore()
+	datapackageCache := newDataPackageStore(true) // TODO: Add config flag
 	bounceInfo := newBounceInfoStore()
 	slots, err := fetchSlotPasswords(rm.config, lobbyRoomId)
 	if err != nil {
