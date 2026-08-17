@@ -366,11 +366,19 @@ function createTrackerTable(tableId)
                     openFullFeed(id, name, game, full_feed);
                 }
             },
+            {
+                label: "Open Debug Viewer",
+                action: function (event, row) {
+                    const { id } = row.getData();
+                    window.open(`/debug_slot/${id}`, '_blank');
+                }
+            }
         ],
         initialSort: [
             { column: "Name", dir:"asc" }
         ],
         columns: [
+            { title: "Id", field: "id", sorter: "number" },
             { title: "S", field: "status", hozAlign: "center", formatter: statusFormatter },
             { title: "Name", field: "name", headerFilter: "input" },
             { title: "Game", field: "game", headerFilter:"list", headerFilterParams: { valuesLookup:true, clearable:true, sort: "asc" } },

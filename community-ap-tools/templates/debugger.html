@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Slog Debug Viewer - {{ slot_id }}</title>
+    <link rel="stylesheet" href="/static/tabulator_site_dark.min.css">
+    <script src="/static/tabulator.min.js"></script>
+    <style>
+        body {
+            width: 100%;
+            min-height: 100%;
+            margin: 0;
+            color: white;
+            background-color: rgb(25, 25, 25);
+            font-family: Verdana, sans-serif;
+        }
+
+        .tabulator-menu {
+            background: rgb(35,35,35) !important;
+        }
+
+        .tabulator-menu-item:hover {
+            background: rgb(80, 80, 80) !important;
+        }
+    </style>
+</head>
+<body>
+    <div id="status">● Disconnected</div>
+    <button id="pause-btn">Pause</button>
+    <div id="messages-table"></div>
+
+    <script>
+        let paused = false;
+        const pauseBtn = document.getElementById('pause-btn');
+        pauseBtn.addEventListener('click', () => {
+            paused = !paused;
+            pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+
+            if (!paused && queue.length > 0) {
+                queue.forEach(row => table.addRow(row, true));
+                queue = [];
+                queuedEl.textContent = '';
+            }
+        });
+
+        const table = new Tabulator("#messages-table", {
+            data: [],
+            layout: "fitColumns",
+            maxHeight: "90vh",
+            columns: [
+                { title: "Time", field: "time", width: 120 },
+                { title: "Message", field: "message" },
+            ],
+        });
+
+        const status = document.getElementById('status');
+        const ws = new WebSocket('/api/debug/slot/{{slot_id}}');
+
+        ws.onopen = () => status.textContent = '● Connected';
+        ws.onclose = () => status.textContent = '● Disconnected';
+
+        ws.onmessage = async (event) => {
+            if (!paused) {
+              const text = event.data instanceof Blob
+                ? await event.data.text()
+                : event.data;
+              table.addRow({
+                  time: new Date().toLocaleTimeString(),
+                  message: text,
+              }, true);
+            }
+        };
+
+        ws.onerror = (err) => console.error('WebSocket error:', err);
+    </script>
+</body>
+</html>

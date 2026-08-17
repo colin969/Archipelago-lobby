@@ -209,8 +209,9 @@ func connectAndGetRoomInfo(apHost string, apPort int) (*RoomInfoMessage, error) 
 }
 
 type RoomPlayers struct {
-	slots map[int]NetworkSlotArray
-	auth  map[string][2]int
+	slots    map[int]NetworkSlotArray
+	auth     map[string][2]int
+	nameToID map[string]int
 }
 
 func fetchRoomPlayers(apApiRoot string, apRoomId string) (*RoomPlayers, error) {
@@ -229,6 +230,11 @@ func fetchRoomPlayers(apApiRoot string, apRoomId string) (*RoomPlayers, error) {
 	var roomPlayers RoomPlayers
 	if err := json.NewDecoder(resp.Body).Decode(&roomPlayers); err != nil {
 		return nil, fmt.Errorf("decoding room players: %w", err)
+	}
+
+	roomPlayers.nameToID = make(map[string]int, len(roomPlayers.slots))
+	for slotId, slotInfo := range roomPlayers.slots {
+		roomPlayers.nameToID[slotInfo.Name] = slotId
 	}
 
 	return &roomPlayers, nil

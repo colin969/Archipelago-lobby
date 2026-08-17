@@ -43,6 +43,7 @@ type DataPackageStore struct {
 	singleRepOptimization bool                        // Allow single game requests caching, doubles memory usage
 	packages              map[string]json.RawMessage  // Raw encoded datapackages keyed by game name
 	singleResponses       map[string]json.RawMessage  // Pre-built response for single-game requests
+	encodedGameNameKeys   map[string][]byte           // pre-encoded JSON keys for game names
 	ItemIDToName          map[string]map[int64]string // game -> id -> name
 	LocationIDToName      map[string]map[int64]string // game -> id -> name
 }
@@ -52,6 +53,7 @@ func newDataPackageStore(singleRepOptimization bool) *DataPackageStore {
 		singleRepOptimization: singleRepOptimization,
 		packages:              make(map[string]json.RawMessage),
 		singleResponses:       make(map[string]json.RawMessage),
+		encodedGameNameKeys:   make(map[string][]byte),
 		ItemIDToName:          make(map[string]map[int64]string),
 		LocationIDToName:      make(map[string]map[int64]string),
 	}
@@ -64,10 +66,12 @@ func (ds *DataPackageStore) AddDataPackage(game string, gd GameData) error {
 	}
 	ds.packages[game] = encodedData
 
+	encodedGameName, _ := json.Marshal(game)
+	ds.encodedGameNameKeys[game] = encodedGameName
+
 	if ds.singleRepOptimization {
-		encodedKey, _ := json.Marshal(game)
 		msg := []byte(`[{"cmd":"DataPackage","data":{"games":{`)
-		msg = append(msg, encodedKey...)
+		msg = append(msg, encodedGameName...)
 		msg = append(msg, ':')
 		msg = append(msg, encodedData...)
 		msg = append(msg, `}}}]`...)
@@ -92,6 +96,7 @@ func (ds *DataPackageStore) AddDataPackage(game string, gd GameData) error {
 }
 
 // MUST be called before server is live to other users. CANNOT be called safely after.
+// TODO: This should really be optimized to not open a conn for each
 func (s apxServer) prefetchDataPackages(ctx context.Context) error {
 	for game := range s.roomInfo.DatapackageChecksums {
 		if _, ok := s.datapackages.packages[game]; ok {
@@ -200,22 +205,33 @@ func (s apxServer) sendDataPackages(ctx context.Context, client *websocket.Conn,
 		return client.Write(ctx, websocket.MessageText, raw)
 	}
 
-	msg := []byte(`[{"cmd":"DataPackage","data":{"games":{`)
+	const header = `[{"cmd":"DataPackage","data":{"games":{`
+	const footer = `}}}]`
 
-	for i, game := range games {
+	// Estimate size of data first, so we avoid extra allocations when building message later
+	// Probably not perfect, but much better
+	size := len(header) + len(footer) + len(games) - 1
+	for _, game := range games {
 		raw, ok := s.datapackages.packages[game]
 		if !ok {
 			return fmt.Errorf("unknown datapackage for %q", game)
 		}
+		// account for "<game_name>": key
+		size += len(s.datapackages.encodedGameNameKeys[game]) + 1 + len(raw)
+	}
+
+	msg := make([]byte, 0, size)
+	msg = append(msg, header...)
+	for i, game := range games {
+		raw := s.datapackages.packages[game]
 		if i > 0 {
 			msg = append(msg, ',')
 		}
-		encodedKey, _ := json.Marshal(game)
-		msg = append(msg, encodedKey...)
+		msg = append(msg, s.datapackages.encodedGameNameKeys[game]...)
 		msg = append(msg, ':')
 		msg = append(msg, raw...)
 	}
+	msg = append(msg, footer...)
 
-	msg = append(msg, `}}}]`...)
 	return client.Write(ctx, websocket.MessageText, msg)
 }

@@ -100,6 +100,17 @@ func (s apxServer) handleConnect(ctx context.Context, connState *connectionState
 		}
 		return nil
 	}
+
+	// We've got a connect message, we should log it to the slot even if not authed yet, for debugging
+	if s.debugTap != nil {
+		slotId, ok := s.roomPlayers.nameToID[msg.Name]
+		if ok && s.debugTap.HasListeners(slotId) {
+			if raw, err := json.Marshal(raw); err == nil {
+				s.debugTap.Send(slotId, raw)
+			}
+		}
+	}
+
 	password, ok := s.passwords.Get(slotEntry[1])
 	if !(ok && msg.Password != nil && password == *msg.Password) {
 		errorMsg := ConnectionRefusedMessage{

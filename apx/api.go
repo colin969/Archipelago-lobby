@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -167,6 +168,7 @@ func startRoomManager(cfg *Config, reg *prometheus.Registry, metrics *metrics) (
 	api.HandleFunc("/spheres", srv.handleAllSpheres).Methods(http.MethodGet)
 	api.HandleFunc("/incomplete_sphere1", srv.handleIncompleteSphere1).Methods(http.MethodGet)
 	api.HandleFunc("/spheres/{slotId}", srv.handleSpheresForSlot).Methods(http.MethodGet)
+	api.HandleFunc("/debug/slot/{slotId}", srv.handleDebugTap)
 
 	return srv, r
 }
@@ -197,6 +199,7 @@ func (rm *RoomManager) startNewHostedRoom(apRoomId string, lobbyRoomId string, l
 	connRegistry := newConnectionRegistry()
 	datapackageCache := newDataPackageStore(true) // TODO: Add config flag
 	bounceInfo := newBounceInfoStore()
+	debugTap := newDebugTap(maxRoomPlayerId(roomPlayers.nameToID))
 	slots, err := fetchSlotPasswords(rm.config, lobbyRoomId)
 	if err != nil {
 		return fmt.Errorf("failed to fetch slot passwords: %w", err)
@@ -215,6 +218,7 @@ func (rm *RoomManager) startNewHostedRoom(apRoomId string, lobbyRoomId string, l
 		datapackages: datapackageCache,
 		metrics:      rm.metrics,
 		lobbyRoomId:  lobbyRoomId,
+		debugTap:     debugTap,
 	}
 
 	if err := apx.prefetchDataPackages(context.Background()); err != nil {
@@ -658,6 +662,52 @@ func (rm *RoomManager) handleIncompleteSphere1(w http.ResponseWriter, r *http.Re
 	json.NewEncoder(w).Encode(result)
 }
 
+func (rm *RoomManager) handleDebugTap(w http.ResponseWriter, r *http.Request) {
+	room, ok := rm.roomFromRequest(w, r)
+	if !ok {
+		return
+	}
+
+	vars := mux.Vars(r)
+	slotId, err := strconv.Atoi(vars["slotId"])
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid slotId"})
+		return
+	}
+
+	// Validate slot exists
+	if _, ok := room.apx.roomPlayers.slots[slotId]; !ok {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "slot not found"})
+		return
+	}
+
+	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+	if err != nil {
+		return
+	}
+	defer c.CloseNow()
+
+	ch, cancel := room.apx.debugTap.Subscribe(slotId)
+	defer cancel()
+
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case msg, ok := <-ch:
+			if !ok {
+				return
+			}
+			if err := c.Write(ctx, websocket.MessageText, msg); err != nil {
+				return
+			}
+		}
+	}
+}
+
 func isSphere1Incomplete(locIDs []int64, checkedLocations map[int64]bool) bool {
 	for _, locID := range locIDs {
 		if !checkedLocations[locID] {
@@ -770,4 +820,14 @@ func (rm *RoomManager) roomFromRequest(w http.ResponseWriter, r *http.Request) (
 		return nil, false
 	}
 	return room, true
+}
+
+func maxRoomPlayerId(nameToId map[string]int) int {
+	var maxNumber int
+	for _, id := range nameToId {
+		if id > maxNumber {
+			maxNumber = id
+		}
+	}
+	return maxNumber
 }

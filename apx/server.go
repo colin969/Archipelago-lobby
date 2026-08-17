@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"maps"
 	"net/http"
 	"slices"
@@ -75,6 +76,20 @@ func (ps *passwordStore) Delete(slotId int) {
 	delete(ps.passwords, slotId)
 }
 
+type debugTap struct {
+	slots []debugTapSlot
+}
+
+type debugTapSlot struct {
+	mu        sync.RWMutex
+	listeners []chan []byte
+}
+
+func newDebugTap(slotCount int) *debugTap {
+	// + 1 since slots start at 1.
+	return &debugTap{slots: make([]debugTapSlot, slotCount+1)}
+}
+
 type apxServer struct {
 	logf         func(f string, v ...any)
 	config       *Config
@@ -87,6 +102,7 @@ type apxServer struct {
 	datapackages *DataPackageStore
 	metrics      *metrics
 	lobbyRoomId  string
+	debugTap     *debugTap
 }
 
 // No strict lock, but this MUST be immutable to be safe
@@ -341,6 +357,13 @@ func (s apxServer) serveConn(w http.ResponseWriter, r *http.Request, reduced boo
 }
 
 func (s apxServer) handleMessage(ctx context.Context, connState *connectionState, cmd MessageType, raw map[string]any) error {
+	// Shovel logs to any debug listeners
+	if connState.authenticated && s.debugTap != nil && s.debugTap.HasListeners(connState.registeredClient.slotId) {
+		if raw, err := json.Marshal(raw); err == nil {
+			s.debugTap.Send(connState.registeredClient.slotId, raw)
+		}
+	}
+
 	// Match against each message type we want to intercept from client -> server
 	switch cmd {
 	case MessageTypeGetDataPackage:
@@ -402,4 +425,45 @@ func buildTagSet(tags []string) map[string]struct{} {
 		set[t] = struct{}{}
 	}
 	return set
+}
+
+func (dt *debugTap) HasListeners(slotId int) bool {
+	s := &dt.slots[slotId]
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.listeners) > 0
+}
+
+func (dt *debugTap) Subscribe(slotId int) (<-chan []byte, func()) {
+	ch := make(chan []byte, 64)
+	s := &dt.slots[slotId]
+
+	s.mu.Lock()
+	s.listeners = append(s.listeners, ch)
+	s.mu.Unlock()
+
+	cancel := func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for i, l := range s.listeners {
+			if l == ch {
+				s.listeners = slices.Delete(s.listeners, i, i+1)
+				close(ch)
+				break
+			}
+		}
+	}
+	return ch, cancel
+}
+
+func (dt *debugTap) Send(slotId int, raw []byte) {
+	s := &dt.slots[slotId]
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, ch := range s.listeners {
+		select {
+		case ch <- raw:
+		default:
+		}
+	}
 }

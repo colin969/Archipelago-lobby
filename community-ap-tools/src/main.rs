@@ -46,6 +46,13 @@ pub struct RunIndexTpl {
     slot_passwords: SlotPasswords,
 }
 
+#[derive(Template, WebTemplate)]
+#[template(path = "debugger.html")]
+pub struct DebugSlotTpl {
+    room_id: String,
+    slot_id: i32,
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Deathlink {
     pub slot: usize,
@@ -872,6 +879,74 @@ async fn change_yaml_owner(
     Ok(())
 }
 
+#[rocket::get("/debug_slot/<slot_id>")]
+async fn debug_slot_page(
+    _session: ModeratorSession,
+    slot_id: i32,
+    config: &State<Config>,
+) -> crate::error::Result<DebugSlotTpl> {
+    Ok(DebugSlotTpl {
+        room_id: config.lobby_room_id.to_string(),
+        slot_id,
+    })
+}
+
+#[rocket::get("/api/debug/slot/<slot_id>")]
+async fn debug_slot_tap(
+    _session: ModeratorSession,
+    slot_id: i32,
+    config: &State<Config>,
+    ws: rocket_ws::WebSocket,
+) -> crate::error::Result<rocket_ws::Channel<'static>> {
+    use rocket::futures::{SinkExt, StreamExt};
+    let apx_api_root = config
+        .apx_api_root
+        .as_ref()
+        .ok_or_else(|| anyhow!("APX API not configured"))?
+        .clone();
+    let apx_api_key = config
+        .apx_api_key
+        .as_ref()
+        .ok_or_else(|| anyhow!("APX API key not configured"))?
+        .clone();
+
+    let apx_url = apx_api_root
+        .join(&format!("/api/{}/debug/slot/{}", config.lobby_room_id, slot_id))?;
+
+    // Convert http(s) -> ws(s)
+    let ws_url = apx_url.as_str().replacen("http", "ws", 1);
+
+    Ok(ws.channel(move |mut client_stream| Box::pin(async move {
+        let mut request = tokio_tungstenite::tungstenite::client::IntoClientRequest::into_client_request(ws_url.as_str())
+            .map_err(|e| rocket_ws::result::Error::Io(std::io::Error::other(e)))?;
+
+        request.headers_mut().insert(
+            "X-API-Key",
+            apx_api_key.parse().map_err(|e| rocket_ws::result::Error::Io(std::io::Error::other(e)))?,
+        );
+
+        let (mut apx_stream, _) = tokio_tungstenite::connect_async(request)
+            .await
+            .map_err(|e| rocket_ws::result::Error::Io(std::io::Error::other(e)))?;
+
+        // Forward APX -> client
+        loop {
+            match apx_stream.next().await {
+                Some(Ok(msg)) => {
+                    let bytes = msg.into_data();
+                    if client_stream.send(rocket_ws::Message::Binary(bytes.into())).await.is_err() {
+                        break;
+                    }
+                }
+                _ => break,
+            }
+        }
+
+        Ok(())
+    })))
+}
+
+
 pub struct Config {
     pub lobby_root_url: Url,
     pub lobby_public_url: Option<String>,
@@ -977,6 +1052,8 @@ async fn main() -> crate::error::Result<()> {
                 remove_deferred_datapackage_game,
                 add_full_feed,
                 remove_full_feed,
+                debug_slot_page,
+                debug_slot_tap,
             ],
         )
         .mount("/static", FileServer::from(relative!("static")))
