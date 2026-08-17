@@ -47,7 +47,7 @@ async fn list_worlds<'a>(
     apworlds.sort_by_key(|(_, (world, _))| world.display_name.to_lowercase());
 
     Ok(WorldsListTpl {
-        base: TplContext::from_session("apworlds", session, ctx, lobby_config).await,
+        base: TplContext::from_session("apworlds", session, ctx, lobby_config, Some("Apworlds".to_string())).await,
         index,
         apworlds,
     })

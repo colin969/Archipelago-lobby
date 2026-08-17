@@ -64,7 +64,7 @@ async fn list_templates<'a>(
     let room_templates = db::get_room_templates_for_author(session.user_id(), &mut conn).await?;
 
     Ok(ListRoomTemplatesTpl {
-        base: TplContext::from_session("room-templates", session.0, ctx, lobby_config).await,
+        base: TplContext::from_session("room-templates", session.0, ctx, lobby_config, Some("Room Templates".to_string())).await,
         room_templates,
     })
 }
@@ -79,7 +79,7 @@ async fn create_template<'a>(
 ) -> Result<EditRoomTemplateTpl<'a>> {
     let index = index_manager.index.read().await;
 
-    let base = TplContext::from_session("room-templates", session.0, ctx, lobby_config).await;
+    let base = TplContext::from_session("room-templates", session.0, ctx, lobby_config, Some("Create Room Template".to_string())).await;
     Ok(EditRoomTemplateTpl {
         tpl: None,
         tpl_settings_form: RoomSettingsBuilder::new(
@@ -162,7 +162,7 @@ async fn edit_template<'a>(
 
     let index = index_manager.index.read().await;
 
-    let base = TplContext::from_session("template", session.0, ctx, lobby_config).await;
+    let base = TplContext::from_session("template", session.0, ctx, lobby_config, Some(format!("Room Template - {}", template.tpl_name))).await;
     Ok(EditRoomTemplateTpl {
         tpl: Some(template.clone()),
         tpl_settings_form: RoomSettingsBuilder::new_with_template(
@@ -276,7 +276,7 @@ pub async fn list_associated_rooms<'a>(
     let (rooms, max_pages) =
         db::list_rooms_from_template(tpl_id, session.user_id(), current_page, &mut conn).await?;
     Ok(AssociatedRoomsTpl {
-        base: TplContext::from_session("template", session.0, ctx, lobby_config).await,
+        base: TplContext::from_session("template", session.0, ctx, lobby_config, Some(format!("Room Templates - {} - Associated Rooms", tpl.tpl_name))).await,
         tpl,
         rooms,
         current_page,

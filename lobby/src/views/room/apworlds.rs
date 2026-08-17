@@ -52,7 +52,7 @@ pub async fn room_worlds<'a>(
     apworlds.sort_by_key(|(_, (world, _))| world.display_name.to_lowercase());
 
     Ok(RoomApworldsTpl {
-        base: TplContext::from_session("room", session, ctx, lobby_config).await,
+        base: TplContext::from_session("room", session, ctx, lobby_config, Some(format!("{} - Apworlds", room.settings.name))).await,
         is_my_room,
         apworlds,
         room,

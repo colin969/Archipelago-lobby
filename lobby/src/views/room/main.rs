@@ -119,7 +119,7 @@ pub async fn room<'a>(
     };
 
     Ok(RoomTpl {
-        base: TplContext::from_session("room", session, ctx, lobby_config).await,
+        base: TplContext::from_session("room", session, ctx, lobby_config, Some(room.settings.name.clone())).await,
         player_count: yamls.len(),
         unique_player_count,
         unique_game_count,

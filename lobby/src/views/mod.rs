@@ -123,7 +123,7 @@ async fn root<'a>(
     }
 
     Ok(Index::RoomList(IndexTpl {
-        base: TplContext::from_session("index", session, ctx, lobby_config).await,
+        base: TplContext::from_session("index", session, ctx, lobby_config, None).await,
         rooms,
         current_page,
         max_pages,
@@ -138,7 +138,7 @@ async fn help<'a>(
     lobby_config: &State<LobbyConfig>,
 ) -> Result<HelpTpl<'a>> {
     Ok(HelpTpl {
-        base: TplContext::from_session("index", session, ctx, lobby_config).await,
+        base: TplContext::from_session("index", session, ctx, lobby_config, Some("Help".to_string())).await,
     })
 }
 

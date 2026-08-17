@@ -65,7 +65,7 @@ async fn gen_room<'a>(
     let current_gen = db::get_generation_for_room(room_id, &mut conn).await?;
 
     Ok(GenRoomTpl {
-        base: TplContext::from_session("room", session.0, ctx, lobby_config).await,
+        base: TplContext::from_session("room", session.0, ctx, lobby_config, Some(format!("{} - Generation", room.settings.name))).await,
         generation_checklist,
         room,
         current_gen,
