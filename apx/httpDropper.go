@@ -27,8 +27,12 @@ func (hd *httpDropper) Accept() (net.Conn, error) {
 		// TLS ClientHello starts with 0x16 (22)
 		if buf[0] != 0x16 {
 			// Kill the conn after immediate eof so client sees socket hangup (like archipelago.gg)
-			io.Copy(io.Discard, conn)
-			conn.Close()
+			if tc, ok := conn.(*net.TCPConn); ok {
+				tc.CloseRead()  // discard inbound, no RST trigger
+				tc.CloseWrite() // sends FIN
+			} else {
+				conn.Close()
+			}
 			continue
 		}
 
