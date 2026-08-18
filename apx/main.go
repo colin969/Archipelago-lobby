@@ -29,6 +29,8 @@ type Config struct {
 	ApiKey            string `json:"apx_api_key"`
 	ApRoomId          string `json:"ap_room_id"`
 	ApApiRoot         string `json:"ap_api_root"`
+	TLSCertFile       string `json:"tls_cert_file"`
+	TLSKeyFile        string `json:"tls_key_file"`
 }
 
 func main() {
@@ -148,6 +150,12 @@ func getConfig() (*Config, error) {
 	}
 	if v := os.Getenv("AP_API_ROOT"); v != "" {
 		cfg.ApApiRoot = v
+	}
+	if v := os.Getenv("TLS_CERT_FILE"); v != "" {
+		cfg.TLSCertFile = v
+	}
+	if v := os.Getenv("TLS_KEY_FILE"); v != "" {
+		cfg.TLSKeyFile = v
 	}
 
 	if cfg.APPort < 1 || cfg.APPort > 65535 {

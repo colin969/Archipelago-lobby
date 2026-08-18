@@ -288,10 +288,18 @@ func (rm *RoomManager) startNewHostedRoom(apRoomId string, lobbyRoomId string, l
 
 	errc := make(chan error, 1)
 	go func() {
-		errc <- normalServer.Serve(wsListener)
+		if rm.config.TLSCertFile != "" {
+			errc <- normalServer.ServeTLS(wsListener, rm.config.TLSCertFile, rm.config.TLSKeyFile)
+		} else {
+			errc <- normalServer.Serve(wsListener)
+		}
 	}()
 	go func() {
-		errc <- reducedServer.Serve(wsReducedListener)
+		if rm.config.TLSCertFile != "" {
+			errc <- reducedServer.ServeTLS(wsReducedListener, rm.config.TLSCertFile, rm.config.TLSKeyFile)
+		} else {
+			errc <- reducedServer.Serve(wsReducedListener)
+		}
 	}()
 
 	log.Printf("Opened room: %s", lobbyRoomId)
