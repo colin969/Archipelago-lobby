@@ -3,6 +3,7 @@ package main
 import (
 	"io"
 	"net"
+	"sync"
 )
 
 type httpDropper struct {
@@ -10,45 +11,46 @@ type httpDropper struct {
 }
 
 func (hd *httpDropper) Accept() (net.Conn, error) {
-	for {
-		conn, err := hd.Listener.Accept()
-		if err != nil {
-			return nil, err
-		}
-
-		// Peek at the first byte only
-		buf := make([]byte, 1)
-		_, err = io.ReadFull(conn, buf)
-		if err != nil {
-			conn.Close()
-			continue
-		}
-
-		// TLS ClientHello starts with 0x16 (22)
-		if buf[0] != 0x16 {
-			// Kill the conn after immediate eof so client sees socket hangup (like archipelago.gg)
-			if tc, ok := conn.(*net.TCPConn); ok {
-				tc.CloseRead()  // discard inbound, no RST trigger
-				tc.CloseWrite() // sends FIN
-			} else {
-				conn.Close()
-			}
-			continue
-		}
-
-		// Rejoin the byte onto the connection and pass to the normal handler
-		return &peekedConn{conn, io.MultiReader(
-			bytesReader(buf), conn,
-		)}, nil
+	// Just accept the connection, but we'll wrap it
+	conn, err := hd.Listener.Accept()
+	if err != nil {
+		return nil, err
 	}
+	return &peekedConn{Conn: conn}, nil
 }
 
 type peekedConn struct {
 	net.Conn
-	r io.Reader
+	once   sync.Once
+	r      io.Reader
+	dropMe bool
 }
 
 func (c *peekedConn) Read(b []byte) (int, error) {
+	// Only run on first read, get first byte
+	c.once.Do(func() {
+		buf := make([]byte, 1)
+		_, err := io.ReadFull(c.Conn, buf)
+		// If not TLS byte, mark to drop
+		if err != nil || buf[0] != 0x16 {
+			c.dropMe = true
+			return
+		}
+		// Join byte back on
+		c.r = io.MultiReader(bytesReader(buf), c.Conn)
+	})
+
+	if c.dropMe {
+		// Drop non-TLS traffic like archipelago.gg
+		if tc, ok := c.Conn.(*net.TCPConn); ok {
+			tc.CloseRead() // Must close read before closing write, otherwise RST not FIN resp
+			tc.CloseWrite()
+		} else {
+			c.Conn.Close()
+		}
+		return 0, io.EOF
+	}
+
 	return c.r.Read(b)
 }
 
