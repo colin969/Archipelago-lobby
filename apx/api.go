@@ -289,14 +289,14 @@ func (rm *RoomManager) startNewHostedRoom(apRoomId string, lobbyRoomId string, l
 	errc := make(chan error, 1)
 	go func() {
 		if rm.config.TLSCertFile != "" {
-			errc <- normalServer.ServeTLS(wsListener, rm.config.TLSCertFile, rm.config.TLSKeyFile)
+			errc <- normalServer.ServeTLS(&httpDropper{wsListener}, rm.config.TLSCertFile, rm.config.TLSKeyFile)
 		} else {
 			errc <- normalServer.Serve(wsListener)
 		}
 	}()
 	go func() {
 		if rm.config.TLSCertFile != "" {
-			errc <- reducedServer.ServeTLS(wsReducedListener, rm.config.TLSCertFile, rm.config.TLSKeyFile)
+			errc <- reducedServer.ServeTLS(&httpDropper{wsReducedListener}, rm.config.TLSCertFile, rm.config.TLSKeyFile)
 		} else {
 			errc <- reducedServer.Serve(wsReducedListener)
 		}
