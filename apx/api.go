@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -29,10 +30,11 @@ type SphereResult struct {
 }
 
 type RoomManager struct {
-	config   *Config
-	registry *RoomRegistry
-	metrics  *metrics
-	reg      *prometheus.Registry
+	config        *Config
+	registry      *RoomRegistry
+	metrics       *metrics
+	reg           *prometheus.Registry
+	largeDpLogger *log.Logger
 }
 
 type RoomRegistry struct {
@@ -144,12 +146,19 @@ func newRoomRegistry() *RoomRegistry {
 	}
 }
 
-func startRoomManager(cfg *Config, reg *prometheus.Registry, metrics *metrics) (*RoomManager, *mux.Router) {
+func startRoomManager(cfg *Config, reg *prometheus.Registry, metrics *metrics) (*RoomManager, *mux.Router, error) {
+	logFile, err := os.OpenFile("large_datapackage_requests.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return nil, nil, fmt.Errorf("opening log file: %w", err)
+	}
+	largeDpLogger := log.New(logFile, "", log.LstdFlags|log.LUTC)
+
 	srv := &RoomManager{
-		config:   cfg,
-		registry: newRoomRegistry(),
-		reg:      reg,
-		metrics:  metrics,
+		config:        cfg,
+		registry:      newRoomRegistry(),
+		reg:           reg,
+		metrics:       metrics,
+		largeDpLogger: largeDpLogger,
 	}
 
 	r := mux.NewRouter()
@@ -170,7 +179,7 @@ func startRoomManager(cfg *Config, reg *prometheus.Registry, metrics *metrics) (
 	api.HandleFunc("/spheres/{slotId}", srv.handleSpheresForSlot).Methods(http.MethodGet)
 	api.HandleFunc("/debug/slot/{slotId}", srv.handleDebugTap)
 
-	return srv, r
+	return srv, r, nil
 }
 
 func (rm *RoomManager) startNewHostedRoom(apRoomId string, lobbyRoomId string, listenAddr, reducedListenAddr *string) error {
@@ -207,18 +216,19 @@ func (rm *RoomManager) startNewHostedRoom(apRoomId string, lobbyRoomId string, l
 	loadPasswordsIntoStore(connRegistry, passwordStore, roomPlayers, slots)
 
 	apx := &apxServer{
-		logf:         log.Printf,
-		config:       rm.config,
-		roomInfo:     *roomInfo,
-		roomPlayers:  roomPlayers,
-		passwords:    passwordStore,
-		fullFeed:     fullFeedStore,
-		connections:  connRegistry,
-		bounceInfo:   bounceInfo,
-		datapackages: datapackageCache,
-		metrics:      rm.metrics,
-		lobbyRoomId:  lobbyRoomId,
-		debugTap:     debugTap,
+		logf:          log.Printf,
+		config:        rm.config,
+		roomInfo:      *roomInfo,
+		roomPlayers:   roomPlayers,
+		passwords:     passwordStore,
+		fullFeed:      fullFeedStore,
+		connections:   connRegistry,
+		bounceInfo:    bounceInfo,
+		datapackages:  datapackageCache,
+		metrics:       rm.metrics,
+		lobbyRoomId:   lobbyRoomId,
+		debugTap:      debugTap,
+		largeDpLogger: rm.largeDpLogger,
 	}
 
 	if err := apx.prefetchDataPackages(context.Background()); err != nil {

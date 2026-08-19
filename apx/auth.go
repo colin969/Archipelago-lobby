@@ -182,6 +182,10 @@ func (s apxServer) handleConnect(ctx context.Context, connState *connectionState
 		s.metrics.retryStormClients.WithLabelValues(s.lobbyRoomId, *connState.slotName, *connState.registeredClient.game).Inc()
 	}
 
+	if connState.largeDpRequested > 0 {
+		s.logLargeDpRequest(*game, *connState.slotName, connState.largeDpRequested)
+	}
+
 	log.Printf("Connected to %s", msg.Name)
 
 	return nil

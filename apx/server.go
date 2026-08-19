@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"maps"
 	"net/http"
 	"slices"
@@ -91,18 +92,19 @@ func newDebugTap(slotCount int) *debugTap {
 }
 
 type apxServer struct {
-	logf         func(f string, v ...any)
-	config       *Config
-	roomInfo     RoomInfoMessage
-	roomPlayers  *RoomPlayers // Immutable
-	passwords    *passwordStore
-	fullFeed     *fullFeedStore
-	bounceInfo   *bounceInfoStore
-	connections  *connectionRegistry
-	datapackages *DataPackageStore
-	metrics      *metrics
-	lobbyRoomId  string
-	debugTap     *debugTap
+	logf          func(f string, v ...any)
+	config        *Config
+	roomInfo      RoomInfoMessage
+	roomPlayers   *RoomPlayers // Immutable
+	passwords     *passwordStore
+	fullFeed      *fullFeedStore
+	bounceInfo    *bounceInfoStore
+	connections   *connectionRegistry
+	datapackages  *DataPackageStore
+	metrics       *metrics
+	lobbyRoomId   string
+	debugTap      *debugTap
+	largeDpLogger *log.Logger
 }
 
 // No strict lock, but this MUST be immutable to be safe
@@ -263,6 +265,7 @@ type connectionState struct {
 	prevDatapackageGamesReq string
 	// Retry storm may happen before auth, we can read this after connect for metrics
 	isRetryStormClient bool
+	largeDpRequested   int // Max that were requested at once before auth
 }
 
 type MessageType string

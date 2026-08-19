@@ -49,7 +49,10 @@ func run() error {
 	}
 
 	reg, metrics := initMetrics()
-	rm, router := startRoomManager(cfg, reg, metrics)
+	rm, router, err := startRoomManager(cfg, reg, metrics)
+	if err != nil {
+		log.Panicf("starting room manager: %v", err)
+	}
 
 	s := &http.Server{
 		Addr:         cfg.ApiListenAddr,
