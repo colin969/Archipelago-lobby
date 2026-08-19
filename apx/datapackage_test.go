@@ -11,11 +11,6 @@ import (
 func TestRetryStormGameKeyCache(t *testing.T) {
 	connState := &connectionState{}
 
-	raw := map[string]any{
-		"cmd":   "GetDataPackage",
-		"games": []any{"Archipelago", "Clique"},
-	}
-
 	s := apxServer{
 		roomInfo: RoomInfoMessage{
 			DatapackageChecksums: map[string]string{
@@ -27,35 +22,49 @@ func TestRetryStormGameKeyCache(t *testing.T) {
 		datapackages: newDataPackageStore(true),
 	}
 
-	// First req - should set key
+	// All games req - key should not be empty
+	raw := map[string]any{
+		"cmd": "GetDataPackage",
+	}
 	_ = s.handleGetDataPackage(context.Background(), connState, raw)
 	if connState.prevDatapackageGamesReq == "" {
 		t.Fatal("expected key to be set")
 	}
 
-	// Second req - identical request, should be same key
+	// First req - should set different key
+	raw2 := map[string]any{
+		"cmd":   "GetDataPackage",
+		"games": []any{"Archipelago", "Clique"},
+	}
 	prev := connState.prevDatapackageGamesReq
-	_ = s.handleGetDataPackage(context.Background(), connState, raw)
+	_ = s.handleGetDataPackage(context.Background(), connState, raw2)
+	if connState.prevDatapackageGamesReq == prev {
+		t.Fatal("expected key to be changed")
+	}
+
+	// Second req - identical request, should be same key
+	prev = connState.prevDatapackageGamesReq
+	_ = s.handleGetDataPackage(context.Background(), connState, raw2)
 	if connState.prevDatapackageGamesReq != prev {
 		t.Fatal("expected key to be unchanged on retry")
 	}
 
 	// Different order - should still be the same key because of sorting
-	raw2 := map[string]any{
+	raw3 := map[string]any{
 		"cmd":   "GetDataPackage",
 		"games": []any{"Clique", "Archipelago"},
 	}
-	_ = s.handleGetDataPackage(context.Background(), connState, raw2)
+	_ = s.handleGetDataPackage(context.Background(), connState, raw3)
 	if connState.prevDatapackageGamesReq != prev {
 		t.Fatal("expected sort to normalize order")
 	}
 
 	// Different games - should be different key
-	raw3 := map[string]any{
+	raw4 := map[string]any{
 		"cmd":   "GetDataPackage",
 		"games": []any{"Clique", "Archipelago", "Celeste"},
 	}
-	_ = s.handleGetDataPackage(context.Background(), connState, raw3)
+	_ = s.handleGetDataPackage(context.Background(), connState, raw4)
 	if connState.prevDatapackageGamesReq == prev {
 		t.Fatal("expected key to change for new games")
 	}

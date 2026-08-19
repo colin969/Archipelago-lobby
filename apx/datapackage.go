@@ -125,6 +125,13 @@ func (s apxServer) handleGetDataPackage(ctx context.Context, connState *connecti
 		}
 	}
 
+	// Nothing requested = all requested. Not great clients :(
+	if len(requestedGames) == 0 {
+		for game := range s.roomInfo.DatapackageChecksums {
+			requestedGames = append(requestedGames, game)
+		}
+	}
+
 	// If the client immediately requests an identical message, bad client!
 	// Probably an application level timeout
 	slices.Sort(requestedGames)
@@ -141,24 +148,13 @@ func (s apxServer) handleGetDataPackage(ctx context.Context, connState *connecti
 	}
 	connState.prevDatapackageGamesReq = gamesKey
 
-	if len(requestedGames) == 0 {
-		// Client requested all games, send them all together
-		games := make([]string, 0, len(s.roomInfo.DatapackageChecksums))
-		for game := range s.roomInfo.DatapackageChecksums {
+	games := make([]string, 0)
+	for _, game := range requestedGames {
+		if _, ok := s.roomInfo.DatapackageChecksums[game]; ok {
 			games = append(games, game)
 		}
-		return s.sendDataPackages(ctx, connState.clientConn, games)
-	} else {
-		// Good client requesting only some at a time
-		// Apclientpp and other clients can fail if we try and send back in multiple messages, so don't try it
-		games := make([]string, 0)
-		for _, game := range requestedGames {
-			if _, ok := s.roomInfo.DatapackageChecksums[game]; ok {
-				games = append(games, game)
-			}
-		}
-		return s.sendDataPackages(ctx, connState.clientConn, games)
 	}
+	return s.sendDataPackages(ctx, connState.clientConn, games)
 
 	// We can uncomment this if we want to delay datapackages again later. Need to do before the branches above, extra changes still.
 
