@@ -29,8 +29,9 @@ type bounceInfoStore struct {
 
 func newBounceInfoStore() *bounceInfoStore {
 	return &bounceInfoStore{
-		counts:               make(map[int]int),
-		deathlinkProbability: 1,
+		counts: make(map[int]int),
+		// Default off
+		deathlinkProbability: 0,
 		excluded:             make(map[int]map[string]struct{}),
 		// Why is Sub a duration by Add a time?
 		lastDeathlink: time.Now().Add(-deathlinkThrottle),
