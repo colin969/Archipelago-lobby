@@ -160,7 +160,7 @@ func (s apxServer) handleConnect(ctx context.Context, connState *connectionState
 		connState.pendingDatapackGames = nil
 	}
 
-	apConn, slotId, game, err := s.connectAP(ctx, connState.clientConn, connState.reduced, msg)
+	apConn, slotId, game, err := s.connectAP(ctx, connState, connState.reduced, msg)
 	if err != nil {
 		return fmt.Errorf("connecting to AP: %w", err)
 	}
@@ -227,7 +227,7 @@ func (s apxServer) handleConnectUpdate(ctx context.Context, connState *connectio
 	return nil
 }
 
-func (s apxServer) connectAP(ctx context.Context, client *websocket.Conn, reduced bool, connectMsg ConnectMessage) (*websocket.Conn, int, *string, error) {
+func (s apxServer) connectAP(ctx context.Context, connState *connectionState, reduced bool, connectMsg ConnectMessage) (*websocket.Conn, int, *string, error) {
 	// Fix password when talking to ap server (only needed when using per-slot passwords)
 	if s.config.LobbyEnabled {
 		if s.roomInfo.Password {
@@ -269,7 +269,7 @@ func (s apxServer) connectAP(ctx context.Context, client *websocket.Conn, reduce
 	}
 
 	// Forward the Connected message to the client
-	if err := wsjson.Write(ctx, client, response); err != nil {
+	if err := wsjson.Write(ctx, connState.clientConn, response); err != nil {
 		apConn.CloseNow()
 		return nil, 0, nil, fmt.Errorf("forwarding Connected to client: %w", err)
 	}
@@ -308,6 +308,8 @@ func (s apxServer) connectAP(ctx context.Context, client *websocket.Conn, reduce
 	go func() {
 		defer apConn.CloseNow()
 		defer close(msgs)
+		// Kill client conn if ap conn drops
+		defer connState.cancel()
 		for {
 			msgType, data, err := apConn.Read(ctx)
 			if err != nil {
@@ -332,7 +334,7 @@ func (s apxServer) connectAP(ctx context.Context, client *websocket.Conn, reduce
 	// Send messages to client
 	go func() {
 		for msg := range msgs {
-			if err := client.Write(ctx, msg.msgType, msg.data); err != nil {
+			if err := connState.clientConn.Write(ctx, msg.msgType, msg.data); err != nil {
 				if ctx.Err() == nil {
 					log.Printf("client write error: %v", err)
 				}
