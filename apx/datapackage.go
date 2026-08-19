@@ -4,9 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
-	"slices"
-	"strings"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
@@ -143,21 +140,22 @@ func (s apxServer) handleGetDataPackage(ctx context.Context, connState *connecti
 		}
 	}
 
+	// TODO: Verify this works before allowing to go live
 	// If the client immediately requests an identical message, bad client!
 	// Probably an application level timeout
-	slices.Sort(requestedGames)
-	gamesKey := strings.Join(requestedGames, ",")
-	if connState.prevDatapackageGamesReq == gamesKey {
-		// We'll log it and also metric it here if already authed, otherwise mark
-		if connState.authenticated {
-			log.Printf("retry storm client: %s, %s, %s", s.lobbyRoomId, *connState.slotName, *connState.registeredClient.game)
-			s.metrics.retryStormClients.WithLabelValues(s.lobbyRoomId, *connState.slotName, *connState.registeredClient.game).Inc()
-		} else {
-			connState.isRetryStormClient = true
-		}
-		return nil
-	}
-	connState.prevDatapackageGamesReq = gamesKey
+	// slices.Sort(requestedGames)
+	// gamesKey := strings.Join(requestedGames, ",")
+	// if connState.prevDatapackageGamesReq == gamesKey {
+	// 	// We'll log it and also metric it here if already authed, otherwise mark
+	// 	if connState.authenticated {
+	// 		log.Printf("retry storm client: %s, %s, %s", s.lobbyRoomId, *connState.slotName, *connState.registeredClient.game)
+	// 		s.metrics.retryStormClients.WithLabelValues(s.lobbyRoomId, *connState.slotName, *connState.registeredClient.game).Inc()
+	// 	} else {
+	// 		connState.isRetryStormClient = true
+	// 	}
+	// 	return nil
+	// }
+	// connState.prevDatapackageGamesReq = gamesKey
 
 	games := make([]string, 0)
 	for _, game := range requestedGames {
