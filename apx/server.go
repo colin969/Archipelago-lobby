@@ -251,15 +251,18 @@ func (cr *connectionRegistry) SendChatMessageToSlot(ctx context.Context, slotId 
 }
 
 type connectionState struct {
-	authenticated        bool
-	slotName             *string
-	cancel               context.CancelFunc
-	clientConn           *websocket.Conn
-	apConn               *websocket.Conn
-	reduced              bool
-	pendingDatapackGames []string
-	registeredClient     *registeredClient
-	authFailCount        int
+	authenticated           bool
+	slotName                *string
+	cancel                  context.CancelFunc
+	clientConn              *websocket.Conn
+	apConn                  *websocket.Conn
+	reduced                 bool
+	pendingDatapackGames    []string
+	registeredClient        *registeredClient
+	authFailCount           int
+	prevDatapackageGamesReq string
+	// Retry storm may happen before auth, we can read this after connect for metrics
+	isRetryStormClient bool
 }
 
 type MessageType string

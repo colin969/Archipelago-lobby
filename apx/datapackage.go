@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+	"slices"
+	"strings"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
@@ -112,16 +115,33 @@ func (s apxServer) prefetchDataPackages(ctx context.Context) error {
 }
 
 func (s apxServer) handleGetDataPackage(ctx context.Context, connState *connectionState, raw map[string]any) error {
-	data, err := json.Marshal(raw)
-	if err != nil {
-		return fmt.Errorf("marshalling GetDataPackage: %w", err)
-	}
-	var msg GetDataPackageMessage
-	if err := json.Unmarshal(data, &msg); err != nil {
-		return fmt.Errorf("unmarshalling GetDataPackage: %w", err)
+	// We only need 1 field, no point re and unmarshaling just for the struct
+	var requestedGames []string
+	if gamesList, ok := raw["games"].([]any); ok {
+		for _, g := range gamesList {
+			if gs, ok := g.(string); ok {
+				requestedGames = append(requestedGames, gs)
+			}
+		}
 	}
 
-	if len(msg.Games) == 0 {
+	// If the client immediately requests an identical message, bad client!
+	// Probably an application level timeout
+	slices.Sort(requestedGames)
+	gamesKey := strings.Join(requestedGames, ",")
+	if connState.prevDatapackageGamesReq == gamesKey {
+		// We'll log it and also metric it here if already authed, otherwise mark
+		if connState.authenticated {
+			log.Printf("retry storm client: %s, %s, %s", s.lobbyRoomId, *connState.slotName, *connState.registeredClient.game)
+			s.metrics.retryStormClients.WithLabelValues(s.lobbyRoomId, *connState.slotName, *connState.registeredClient.game).Inc()
+		} else {
+			connState.isRetryStormClient = true
+		}
+		return nil
+	}
+	connState.prevDatapackageGamesReq = gamesKey
+
+	if len(requestedGames) == 0 {
 		// Client requested all games, send them all together
 		games := make([]string, 0, len(s.roomInfo.DatapackageChecksums))
 		for game := range s.roomInfo.DatapackageChecksums {
@@ -132,7 +152,7 @@ func (s apxServer) handleGetDataPackage(ctx context.Context, connState *connecti
 		// Good client requesting only some at a time
 		// Apclientpp and other clients can fail if we try and send back in multiple messages, so don't try it
 		games := make([]string, 0)
-		for _, game := range msg.Games {
+		for _, game := range requestedGames {
 			if _, ok := s.roomInfo.DatapackageChecksums[game]; ok {
 				games = append(games, game)
 			}

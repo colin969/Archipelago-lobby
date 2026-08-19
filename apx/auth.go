@@ -175,24 +175,22 @@ func (s apxServer) handleConnect(ctx context.Context, connState *connectionState
 	s.connections.Register(slotId, &client, msg.Tags)
 	connState.registeredClient = &client
 
+	// Client tried to retry storm earlier before auth, we can do metrics here instead
+	if connState.isRetryStormClient {
+		connState.isRetryStormClient = false
+		log.Printf("retry storm client: %s, %s, %s", s.lobbyRoomId, *connState.slotName, *connState.registeredClient.game)
+		s.metrics.retryStormClients.WithLabelValues(s.lobbyRoomId, *connState.slotName, *connState.registeredClient.game).Inc()
+	}
+
 	log.Printf("Connected to %s", msg.Name)
 
 	return nil
 }
 
 func (s apxServer) handleSay(ctx context.Context, connState *connectionState, raw map[string]any) error {
-	data, err := json.Marshal(raw)
-	if err != nil {
-		return fmt.Errorf("marshalling say message: %w", err)
-	}
-
-	var msg SayMessage
-	if err := json.Unmarshal(data, &msg); err != nil {
-		return fmt.Errorf("unmarshalling say message: %w", err)
-	}
-
-	if msg.Text != "" {
-		trimmed := strings.ToLower(strings.TrimSpace(msg.Text))
+	// Only need 1 field, don't bother re and unmarshaling for struct
+	if text, ok := raw["text"].(string); ok && text != "" {
+		trimmed := strings.ToLower(strings.TrimSpace(text))
 		if strings.HasPrefix(trimmed, "!countdown") {
 			s.connections.SendChatMessageToSlot(ctx, connState.registeredClient.slotId, "You're not allowed to do this")
 			return nil

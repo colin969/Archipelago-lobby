@@ -6,9 +6,10 @@ import (
 )
 
 type metrics struct {
-	incomingPackets  prometheus.CounterVec
-	bouncePackets    prometheus.CounterVec
-	connectedClients prometheus.GaugeVec
+	incomingPackets   prometheus.CounterVec
+	bouncePackets     prometheus.CounterVec
+	connectedClients  prometheus.GaugeVec
+	retryStormClients prometheus.CounterVec
 }
 
 func initMetrics() (*prometheus.Registry, *metrics) {
@@ -35,6 +36,13 @@ func initMetrics() (*prometheus.Registry, *metrics) {
 				Help: "Number of connections to room",
 			},
 			[]string{"room"},
+		),
+		retryStormClients: *promauto.With(reg).NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "apx_retry_storm_clients",
+				Help: "Total number of bad retry attempts when requesting datapackages",
+			},
+			[]string{"room", "slot", "game"},
 		),
 	}
 
