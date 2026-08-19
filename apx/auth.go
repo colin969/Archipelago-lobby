@@ -325,9 +325,6 @@ func (s apxServer) connectAP(ctx context.Context, client *websocket.Conn, reduce
 			// Context asked us to exit
 			case <-ctx.Done():
 				return
-			// Client has backed up a lot of messages!
-			default:
-				s.logf("client being too slow :(")
 			}
 		}
 	}()
