@@ -43,9 +43,10 @@ type EncodedDataPackageObject struct {
 
 // Immutable
 type DataPackageStore struct {
-	singleRepOptimization bool                        // Allow single game requests caching, doubles memory usage
+	singleRepOptimization bool                        // Allow single game requests caching, triples memory usage
 	packages              map[string]json.RawMessage  // Raw encoded datapackages keyed by game name
 	singleResponses       map[string]json.RawMessage  // Pre-built response for single-game requests
+	fullGameResponse      json.RawMessage             // Response for all games at once to avoid allocations
 	encodedGameNameKeys   map[string][]byte           // pre-encoded JSON keys for game names
 	ItemIDToName          map[string]map[int64]string // game -> id -> name
 	LocationIDToName      map[string]map[int64]string // game -> id -> name
@@ -111,6 +112,16 @@ func (s apxServer) prefetchDataPackages(ctx context.Context) error {
 		}
 		s.datapackages.AddDataPackage(game, gd)
 	}
+
+	if s.datapackages.singleRepOptimization {
+		games := make([]string, 0, len(s.datapackages.packages))
+		for game := range s.datapackages.packages {
+			games = append(games, game)
+		}
+		// We know this is a valid set of games, ignore err
+		s.datapackages.fullGameResponse, _ = s.datapackages.buildResponse(games)
+	}
+
 	return nil
 }
 
@@ -213,14 +224,29 @@ func (s apxServer) fetchDataPackageFromAPServer(ctx context.Context, game string
 
 // Stitch together to avoid doing any json ops on the already encoded datapackage
 func (s apxServer) sendDataPackages(ctx context.Context, client *websocket.Conn, games []string) error {
-	if s.datapackages.singleRepOptimization && len(games) == 1 {
-		raw, ok := s.datapackages.singleResponses[games[0]]
-		if !ok {
-			return fmt.Errorf("unknown datapackage for %q", games[0])
+	if s.datapackages.singleRepOptimization {
+		if len(games) == 1 {
+			raw, ok := s.datapackages.singleResponses[games[0]]
+			if !ok {
+				return fmt.Errorf("unknown datapackage for %q", games[0])
+			}
+			return client.Write(ctx, websocket.MessageText, raw)
 		}
-		return client.Write(ctx, websocket.MessageText, raw)
+		if len(games) == len(s.datapackages.packages) && s.datapackages.fullGameResponse != nil {
+			return client.Write(ctx, websocket.MessageText, s.datapackages.fullGameResponse)
+		}
 	}
 
+	// Optimization off, or we've got a weird batched request
+	msg, err := s.datapackages.buildResponse(games)
+	if err != nil {
+		return err
+	}
+
+	return client.Write(ctx, websocket.MessageText, msg)
+}
+
+func (ds *DataPackageStore) buildResponse(games []string) (json.RawMessage, error) {
 	const header = `[{"cmd":"DataPackage","data":{"games":{`
 	const footer = `}}}]`
 
@@ -228,26 +254,26 @@ func (s apxServer) sendDataPackages(ctx context.Context, client *websocket.Conn,
 	// Probably not perfect, but much better
 	size := len(header) + len(footer) + len(games) - 1
 	for _, game := range games {
-		raw, ok := s.datapackages.packages[game]
+		raw, ok := ds.packages[game]
 		if !ok {
-			return fmt.Errorf("unknown datapackage for %q", game)
+			return nil, fmt.Errorf("unknown datapackage for %q", game)
 		}
 		// account for "<game_name>": key
-		size += len(s.datapackages.encodedGameNameKeys[game]) + 1 + len(raw)
+		size += len(ds.encodedGameNameKeys[game]) + 1 + len(raw)
 	}
 
 	msg := make([]byte, 0, size)
 	msg = append(msg, header...)
 	for i, game := range games {
-		raw := s.datapackages.packages[game]
+		raw := ds.packages[game]
 		if i > 0 {
 			msg = append(msg, ',')
 		}
-		msg = append(msg, s.datapackages.encodedGameNameKeys[game]...)
+		msg = append(msg, ds.encodedGameNameKeys[game]...)
 		msg = append(msg, ':')
 		msg = append(msg, raw...)
 	}
 	msg = append(msg, footer...)
 
-	return client.Write(ctx, websocket.MessageText, msg)
+	return msg, nil
 }
