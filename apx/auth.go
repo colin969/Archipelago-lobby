@@ -301,12 +301,12 @@ func (s apxServer) connectAP(ctx context.Context, connState *connectionState, re
 
 	// Avoid any processing on these packets where possible
 
-	// Allow 20 messages to be queued at a time. Maybe this is awful, unsure.
+	// Allow 5 messages to be queued at a time. Maybe this is awful, unsure.
 	// This should never include datapackages since we handle them ourselves!
 	msgs := make(chan struct {
 		msgType websocket.MessageType
 		data    []byte
-	}, 20)
+	}, 5)
 
 	// Collect messages from server - We don't want to fail catching a ping from read if the client is slow
 	go func() {

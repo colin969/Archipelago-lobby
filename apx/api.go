@@ -182,7 +182,7 @@ func startRoomManager(cfg *Config, reg *prometheus.Registry, metrics *metrics) (
 	return srv, r, nil
 }
 
-func (rm *RoomManager) startNewHostedRoom(apRoomId string, lobbyRoomId string, listenAddr, reducedListenAddr *string) error {
+func (rm *RoomManager) startNewHostedRoom(apRoomId string, lobbyRoomId string, listenAddr, reducedListenAddr *string, tlsListenAddr *string, tlsReducedListenAddr *string) error {
 	_, exists := rm.registry.Get(lobbyRoomId)
 	if exists {
 		return fmt.Errorf("room already exists: %s", lobbyRoomId)
@@ -282,7 +282,7 @@ func (rm *RoomManager) startNewHostedRoom(apRoomId string, lobbyRoomId string, l
 	}
 	wsListener, err := net.Listen("tcp", *listenAddr)
 	if err != nil {
-		return err
+		return fmt.Errorf("listening on normal port: %w", err)
 	}
 	log.Printf("room %s: listening on ws://%v", lobbyRoomId, wsListener.Addr())
 
@@ -292,25 +292,63 @@ func (rm *RoomManager) startNewHostedRoom(apRoomId string, lobbyRoomId string, l
 	}
 	wsReducedListener, err := net.Listen("tcp", *reducedListenAddr)
 	if err != nil {
-		return err
+		return fmt.Errorf("listening on reduced port: %w", err)
 	}
 	log.Printf("room %s: reduced listening on ws://%v", lobbyRoomId, wsReducedListener.Addr())
 
 	errc := make(chan error, 1)
 	go func() {
-		if rm.config.TLSCertFile != "" {
-			errc <- normalServer.ServeTLS(&httpDropper{wsListener}, rm.config.TLSCertFile, rm.config.TLSKeyFile)
-		} else {
-			errc <- normalServer.Serve(wsListener)
-		}
+		errc <- normalServer.Serve(wsListener)
 	}()
 	go func() {
-		if rm.config.TLSCertFile != "" {
-			errc <- reducedServer.ServeTLS(&httpDropper{wsReducedListener}, rm.config.TLSCertFile, rm.config.TLSKeyFile)
-		} else {
-			errc <- reducedServer.Serve(wsReducedListener)
-		}
+		errc <- reducedServer.Serve(wsReducedListener)
 	}()
+
+	// TLS listeners on fixed ports 9004/9005
+	if rm.config.TLSCertFile != "" {
+		if tlsListenAddr == nil {
+			a := "0.0.0.0"
+			tlsListenAddr = &a
+		}
+		if tlsReducedListenAddr == nil {
+			a := "0.0.0.0"
+			tlsReducedListenAddr = &a
+		}
+
+		tlsNormalListener, err := net.Listen("tcp", *tlsListenAddr)
+		if err != nil {
+			return fmt.Errorf("listening on TLS normal port: %w", err)
+		}
+		log.Printf("room %s: TLS listening on wss://%v", lobbyRoomId, tlsNormalListener.Addr())
+
+		tlsReducedListener, err := net.Listen("tcp", *tlsReducedListenAddr)
+		if err != nil {
+			return fmt.Errorf("listening on TLS reduced port: %w", err)
+		}
+		log.Printf("room %s: TLS reduced listening on wss://%v", lobbyRoomId, tlsReducedListener.Addr())
+
+		tlsNormalServer := &http.Server{
+			Handler:      apxHandler{server: apx, reduced: false},
+			ReadTimeout:  time.Second * 10,
+			WriteTimeout: time.Second * 10,
+		}
+		tlsReducedServer := &http.Server{
+			Handler:      apxHandler{server: apx, reduced: true},
+			ReadTimeout:  time.Second * 10,
+			WriteTimeout: time.Second * 10,
+		}
+
+		// Store for shutdown
+		room.normalServer = tlsNormalServer
+		room.reducedServer = tlsReducedServer
+
+		go func() {
+			errc <- tlsNormalServer.ServeTLS(&httpDropper{tlsNormalListener}, rm.config.TLSCertFile, rm.config.TLSKeyFile)
+		}()
+		go func() {
+			errc <- tlsReducedServer.ServeTLS(&httpDropper{tlsReducedListener}, rm.config.TLSCertFile, rm.config.TLSKeyFile)
+		}()
+	}
 
 	log.Printf("Opened room: %s", lobbyRoomId)
 

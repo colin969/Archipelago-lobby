@@ -16,21 +16,23 @@ import (
 )
 
 type Config struct {
-	ListenAddr        string `json:"apx_ws_listenaddr"`
-	ReducedListenAddr string `json:"apx_ws_reduced_listenaddr"`
-	APHost            string `json:"ap_room_host"`
-	APPort            int    `json:"ap_room_port"`
-	APPassword        string `json:"ap_room_password"`
-	LobbyEnabled      bool   `json:"lobby_enabled"`
-	LobbyRootUrl      string `json:"lobby_root_url"`
-	LobbyRoomId       string `json:"lobby_room_id"`
-	LobbyApiKey       string `json:"lobby_api_key"`
-	ApiListenAddr     string `json:"apx_api_listen"`
-	ApiKey            string `json:"apx_api_key"`
-	ApRoomId          string `json:"ap_room_id"`
-	ApApiRoot         string `json:"ap_api_root"`
-	TLSCertFile       string `json:"tls_cert_file"`
-	TLSKeyFile        string `json:"tls_key_file"`
+	ListenAddr           string `json:"apx_ws_listenaddr"`
+	ReducedListenAddr    string `json:"apx_ws_reduced_listenaddr"`
+	TlsListenAddr        string `json:"apx_ws_tls_listenaddr"`
+	TlsReducedListenAddr string `json:"apx_ws_tls_reduced_listenaddr"`
+	APHost               string `json:"ap_room_host"`
+	APPort               int    `json:"ap_room_port"`
+	APPassword           string `json:"ap_room_password"`
+	LobbyEnabled         bool   `json:"lobby_enabled"`
+	LobbyRootUrl         string `json:"lobby_root_url"`
+	LobbyRoomId          string `json:"lobby_room_id"`
+	LobbyApiKey          string `json:"lobby_api_key"`
+	ApiListenAddr        string `json:"apx_api_listen"`
+	ApiKey               string `json:"apx_api_key"`
+	ApRoomId             string `json:"ap_room_id"`
+	ApApiRoot            string `json:"ap_api_root"`
+	TLSCertFile          string `json:"tls_cert_file"`
+	TLSKeyFile           string `json:"tls_key_file"`
 }
 
 func main() {
@@ -62,7 +64,7 @@ func run() error {
 	}
 
 	go func() {
-		err := rm.startNewHostedRoom(cfg.ApRoomId, cfg.LobbyRoomId, &cfg.ListenAddr, &cfg.ReducedListenAddr)
+		err := rm.startNewHostedRoom(cfg.ApRoomId, cfg.LobbyRoomId, &cfg.ListenAddr, &cfg.ReducedListenAddr, &cfg.TlsListenAddr, &cfg.TlsReducedListenAddr)
 		if err != nil {
 			log.Fatalf("%v", err)
 		}
@@ -112,6 +114,12 @@ func getConfig() (*Config, error) {
 	}
 	if v := os.Getenv("APX_WS_REDUCED_LISTENADDR"); v != "" {
 		cfg.ReducedListenAddr = v
+	}
+	if v := os.Getenv("APX_WS_TLS_LISTENADDR"); v != "" {
+		cfg.TlsListenAddr = v
+	}
+	if v := os.Getenv("APX_WS_TLS_REDUCED_LISTENADDR"); v != "" {
+		cfg.TlsReducedListenAddr = v
 	}
 	if v := os.Getenv("AP_ROOM_HOST"); v != "" {
 		cfg.APHost = v

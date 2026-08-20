@@ -163,6 +163,8 @@ services:
       LOBBY_API_KEY: "changeme"
       APX_WS_LISTENADDR: "0.0.0.0:9002"
       APX_WS_REDUCED_LISTENADDR: "0.0.0.0:9003"
+      APX_WS_TLS_LISTENADDR: "0.0.0.0:9004"
+      APX_WS_TLS_REDUCED_LISTENADDR: "0.0.0.0:9005"
       APX_API_LISTENADDR: "0.0.0.0:9001"
       APX_API_KEY: "changeme"
       AP_ROOM_HOST: "ap-webhost"

@@ -140,13 +140,14 @@ func (s apxServer) handleGetDataPackage(ctx context.Context, connState *connecti
 		}
 	}
 
-	if len(requestedGames) > 10 {
-		if connState.authenticated {
-			s.logLargeDpRequest(*connState.registeredClient.game, *connState.slotName, len(requestedGames))
-		} else if connState.largeDpRequested < len(requestedGames) {
-			connState.largeDpRequested = len(requestedGames)
-		}
-	}
+	// TODO: Make sure this behaves
+	// if len(requestedGames) > 10 {
+	// 	if connState.authenticated {
+	// 		s.logLargeDpRequest(*connState.registeredClient.game, *connState.slotName, len(requestedGames))
+	// 	} else if connState.largeDpRequested < len(requestedGames) {
+	// 		connState.largeDpRequested = len(requestedGames)
+	// 	}
+	// }
 
 	// TODO: Verify this works before allowing to go live
 	// If the client immediately requests an identical message, bad client!
