@@ -101,7 +101,9 @@ def main():
 
     for slot_num, patch_filename in patch_files.items():
       player_name = player_names[slot_num - 1]
-      cmd = "UPDATE yamls SET patch = '{}' WHERE player_name = '{}'".format(patch_filename, player_name)
+      safe_patch = patch_filename.replace("'", "''")
+      safe_player = player_name.replace("'", "''")
+      cmd = "UPDATE yamls SET patch = '{}' WHERE player_name = '{}'".format(safe_patch, safe_player)
       run_postgres_command(cmd)
 
     print("Writing fake generation log")
