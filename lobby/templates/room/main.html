@@ -35,8 +35,9 @@
 {% match room_info %}
 {% when Some with (info) %}
     {% if current_user_has_yaml_in_room %}
-    <p class="message info"><strong>Server: &nbsp;</strong>{{ info.host }}:{{ info.port }}</p>
-
+    <p class="message info" style="font-family: 'Courier New', monospace;">
+        <strong>Server: &nbsp;</strong>{{ info.host }}:{{ info.port }}
+    </p>
     <table class="styled" id="my-slots">
     <thead>
         <tr>
@@ -53,7 +54,7 @@
         <tr>
             <td>{{ self.get_truncated_name(yaml.player_name) }}</td>
             <td>{{ self.get_game_display_name(yaml.game) }}</td>
-            <td>{% match yaml.password %}{% when Some with (pwd) %}{{ pwd }}{% when None %}-{% endmatch %}</td>
+            <td style="font-family: 'Courier New', monospace;">{% match yaml.password %}{% when Some with (pwd) %}{{ pwd }}{% when None %}-{% endmatch %}</td>
             <td>{% if yaml.patch.is_some() %}<a href="/room/{{room.id}}/patch/{{yaml.id}}">Download</a>{% else %}-{% endif %}</td>
         </tr>
         {% endif %}
