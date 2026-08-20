@@ -39,14 +39,14 @@ type RoomManager struct {
 
 type RoomRegistry struct {
 	mu    sync.RWMutex
-	rooms map[string]HostedRoom
+	rooms map[string]*HostedRoom
 }
 
 func (r *RoomRegistry) Get(roomId string) (*HostedRoom, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	room, ok := r.rooms[roomId]
-	return &room, ok
+	return room, ok
 }
 
 func (r *RoomRegistry) Add(hostedRoom *HostedRoom) error {
@@ -56,7 +56,7 @@ func (r *RoomRegistry) Add(hostedRoom *HostedRoom) error {
 	if exists {
 		return fmt.Errorf("room already exists: %s", hostedRoom.lobbyRoomId)
 	}
-	r.rooms[hostedRoom.lobbyRoomId] = *hostedRoom
+	r.rooms[hostedRoom.lobbyRoomId] = hostedRoom
 	return nil
 }
 
@@ -142,7 +142,7 @@ func (c *slotSphereCache) Set(slotId int, b []byte) {
 
 func newRoomRegistry() *RoomRegistry {
 	return &RoomRegistry{
-		rooms: make(map[string]HostedRoom),
+		rooms: make(map[string]*HostedRoom),
 	}
 }
 
@@ -778,6 +778,7 @@ func isSphere1Incomplete(locIDs []int64, checkedLocations map[int64]bool) bool {
 func (rm *HostedRoom) startCheckedLocationPoller(apApiRoot, apRoomId string, interval time.Duration) {
 	go func() {
 		for {
+			log.Printf("refreshing checked locations")
 			if err := rm.refreshCheckedLocations(apApiRoot, apRoomId); err != nil {
 				log.Printf("refreshing checked locations: %v", err)
 			}

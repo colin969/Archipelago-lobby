@@ -304,6 +304,9 @@ function createTrackerTable(tableId)
                         return password;
                     })
                     .catch((err) => {
+                        if (err?.status !== 404) {
+                            alert(err)
+                        }
                         return null;
                     });
 
@@ -565,5 +568,8 @@ async function getSlotPassword(slotId) {
     if (res.ok) {
         return (await res.json())["password"];
     }
-    throw `${res.json()}`;
+    const body = await res.json().catch(() => ({}));
+    const err = new Error(`HTTP ${res.status}: ${body.message ?? JSON.stringify(body)}`);
+    err.status = res.status;
+    throw err;
 }
