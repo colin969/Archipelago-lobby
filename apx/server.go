@@ -434,13 +434,20 @@ func buildTagSet(tags []string) map[string]struct{} {
 }
 
 func (dt *debugTap) HasListeners(slotId int) bool {
+	if slotId <= 0 || slotId >= len(dt.slots) {
+		return false
+	}
 	s := &dt.slots[slotId]
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.listeners) > 0
 }
 
-func (dt *debugTap) Subscribe(slotId int) (<-chan []byte, func()) {
+func (dt *debugTap) Subscribe(slotId int) (<-chan []byte, func(), bool) {
+	if slotId <= 0 || slotId >= len(dt.slots) {
+		return nil, nil, false
+	}
+
 	ch := make(chan []byte, 64)
 	s := &dt.slots[slotId]
 
@@ -459,10 +466,13 @@ func (dt *debugTap) Subscribe(slotId int) (<-chan []byte, func()) {
 			}
 		}
 	}
-	return ch, cancel
+	return ch, cancel, true
 }
 
 func (dt *debugTap) Send(slotId int, raw []byte) {
+	if slotId <= 0 || slotId >= len(dt.slots) {
+		return
+	}
 	s := &dt.slots[slotId]
 	s.mu.RLock()
 	defer s.mu.RUnlock()

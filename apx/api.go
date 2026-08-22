@@ -779,7 +779,10 @@ func (rm *RoomManager) handleDebugTap(w http.ResponseWriter, r *http.Request) {
 	}
 	defer c.CloseNow()
 
-	ch, cancel := room.apx.debugTap.Subscribe(slotId)
+	ch, cancel, allowed := room.apx.debugTap.Subscribe(slotId)
+	if !allowed {
+		return
+	}
 	defer cancel()
 
 	ctx := r.Context()
