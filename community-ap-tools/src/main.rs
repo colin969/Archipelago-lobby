@@ -11,7 +11,7 @@ use reqwest::{
     Url,
     header::{HeaderMap, HeaderName, HeaderValue},
 };
-use rocket::catchers;
+use rocket::{catchers, tokio};
 use rocket::{
     Request, State, catch, response::Redirect, routes, serde::json::Json,
 };
@@ -315,7 +315,7 @@ async fn proxy_add_exclusion(
         .await?;
 
     // Invalidate tracker info cache
-    *cache.0.lock().unwrap() = None;
+    *cache.0.lock().await = None;
 
     let status = rocket::http::Status::from_code(response.status().as_u16())
         .unwrap_or(rocket::http::Status::InternalServerError);
@@ -352,7 +352,7 @@ async fn proxy_remove_exclusion(
         .await?;
 
     // Invalidate tracker info cache
-    *cache.0.lock().unwrap() = None;
+    *cache.0.lock().await = None;
 
     Ok(rocket::http::Status::from_code(response.status().as_u16())
         .unwrap_or(rocket::http::Status::InternalServerError))
@@ -385,7 +385,7 @@ async fn add_full_feed(
         .await?;
 
     // Invalidate tracker info cache
-    *cache.0.lock().unwrap() = None;
+    *cache.0.lock().await = None;
 
     Ok(rocket::http::Status::from_code(response.status().as_u16())
         .unwrap_or(rocket::http::Status::InternalServerError))
@@ -418,7 +418,7 @@ async fn remove_full_feed(
         .await?;
 
     // Invalidate tracker info cache
-    *cache.0.lock().unwrap() = None;
+    *cache.0.lock().await = None;
 
     Ok(rocket::http::Status::from_code(response.status().as_u16())
         .unwrap_or(rocket::http::Status::InternalServerError))
@@ -778,7 +778,7 @@ async fn gen_all_passwords(
     notify_proxy_password_refresh(config).await;
 
     // Invalidate tracker info cache
-    *cache.0.lock().unwrap() = None;
+    *cache.0.lock().await = None;
 
     Ok(())
 }
@@ -817,7 +817,7 @@ async fn set_password(
     notify_proxy_password_refresh(config).await;
 
     // Invalidate tracker info cache
-    *cache.0.lock().unwrap() = None;
+    *cache.0.lock().await = None;
 
     Ok(())
 }
@@ -874,7 +874,7 @@ async fn change_yaml_owner(
     notify_proxy_password_refresh(config).await;
 
     // Invalidate tracker info cache
-    *cache.0.lock().unwrap() = None;
+    *cache.0.lock().await = None;
 
     Ok(())
 }
@@ -962,7 +962,7 @@ pub struct Config {
     pub apx_api_key: Option<String>,
 }
 
-pub struct TrackerInfoCache(pub Arc<Mutex<Option<(Instant, Vec<MergedSlotInfo>)>>>);
+pub struct TrackerInfoCache(pub Arc<tokio::sync::Mutex<Option<(Instant, Vec<MergedSlotInfo>)>>>);
 pub struct ApRoomCache(pub Arc<Mutex<Option<(Instant, TrackerInfo)>>>);
 
 const TRACKER_CACHE_TTL: Duration = Duration::from_secs(30);
@@ -1065,7 +1065,7 @@ async fn main() -> crate::error::Result<()> {
         .manage(rocket::Config::figment())
         .manage(config)
         .manage(db_pool)
-        .manage(TrackerInfoCache(Arc::new(Mutex::new(None))))
+        .manage(TrackerInfoCache(Arc::new(tokio::sync::Mutex::new(None))))
         .manage(ApRoomCache(Arc::new(Mutex::new(None))))
         .attach(OAuth2::<Discord>::fairing("discord"))
         .launch()

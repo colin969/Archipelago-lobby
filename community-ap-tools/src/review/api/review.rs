@@ -427,12 +427,11 @@ async fn get_tracker_info(
     cache: &State<TrackerInfoCache>,
 ) -> crate::error::Result<Json<Vec<MergedSlotInfo>>> {
     // Check cache first
-    {
-        let lock = cache.0.lock().unwrap();
-        if let Some((cached_at, ref data)) = *lock {
-            if cached_at.elapsed() < TRACKER_CACHE_TTL {
-                return Ok(Json(data.clone()));
-            }
+    let mut lock = cache.0.lock().await;
+
+    if let Some((cached_at, ref data)) = *lock {
+        if cached_at.elapsed() < TRACKER_CACHE_TTL {
+            return Ok(Json(data.clone()));
         }
     }
 
@@ -480,7 +479,7 @@ async fn get_tracker_info(
 
 
     // Save to cache
-    *cache.0.lock().unwrap() = Some((Instant::now(), slots.clone()));
+    *lock = Some((Instant::now(), slots.clone()));
 
     Ok(Json(slots))
 }
