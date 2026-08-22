@@ -70,13 +70,42 @@ func (r *RoomRegistry) Remove(roomId string) {
 	delete(r.rooms, roomId)
 }
 
+type CheckedLocations struct {
+	checkedLocationsMu sync.RWMutex
+	checkedLocations   map[int]map[int64]bool
+}
+
+func (cl *CheckedLocations) Get() map[int]map[int64]bool {
+	cl.checkedLocationsMu.RLock()
+	defer cl.checkedLocationsMu.RUnlock()
+	return cl.checkedLocations
+}
+
+func (cl *CheckedLocations) GetSlot(slotId int) map[int64]bool {
+	cl.checkedLocationsMu.RLock()
+	defer cl.checkedLocationsMu.RUnlock()
+	return cl.checkedLocations[slotId]
+}
+
+func (cl *CheckedLocations) Set(newCl map[int]map[int64]bool) {
+	cl.checkedLocationsMu.Lock()
+	defer cl.checkedLocationsMu.Unlock()
+	cl.checkedLocations = newCl
+}
+
+func newCheckedLocations() CheckedLocations {
+	return CheckedLocations{
+		checkedLocations: make(map[int]map[int64]bool),
+	}
+}
+
 type HostedRoom struct {
 	lobbyRoomId string
 	apx         *apxServer
 	spheres     Spheres
 	// e.g locationIdToName["Ocarina of Time"][3] == "Song from Saria"
 	locationIdToName     map[string]map[int]string
-	checkedLocations     map[int]map[int64]bool
+	checkedLocations     *CheckedLocations
 	sphereCache          *slotSphereCache
 	completeSphere1Slots map[int]struct{}
 	normalServer         *http.Server
@@ -238,12 +267,14 @@ func (rm *RoomManager) startNewHostedRoom(apRoomId string, lobbyRoomId string, l
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	checkedLocs := newCheckedLocations()
 	room := &HostedRoom{
 		lobbyRoomId:          lobbyRoomId,
 		apx:                  apx,
 		spheres:              spheres,
 		sphereCache:          newSlotSphereCache(),
 		completeSphere1Slots: map[int]struct{}{},
+		checkedLocations:     &checkedLocs,
 		ctx:                  ctx,
 		cancel:               cancel,
 	}
@@ -586,7 +617,7 @@ func (rm *RoomManager) handleSpheresForSlot(w http.ResponseWriter, r *http.Reque
 		json.NewEncoder(w).Encode(map[string]string{"error": "datapackage not found"})
 		return
 	}
-	checkedLocations := room.checkedLocations[slotId]
+	checkedLocations := room.checkedLocations.GetSlot(slotId)
 
 	result := make([]SphereResult, 0, len(room.spheres))
 	for _, sphere := range room.spheres {
@@ -643,7 +674,7 @@ func (rm *RoomManager) handleAllSpheres(w http.ResponseWriter, r *http.Request) 
 		if !ok {
 			continue
 		}
-		checkedLocations := room.checkedLocations[slotId]
+		checkedLocations := room.checkedLocations.GetSlot(slotId)
 
 		slotResult := make([]SphereResult, 0, len(room.spheres))
 		for _, sphere := range room.spheres {
@@ -701,11 +732,12 @@ func (rm *RoomManager) handleIncompleteSphere1(w http.ResponseWriter, r *http.Re
 	sphere1 := room.spheres[0]
 
 	// Check if status of incomplete slots has changed
+	checkedLocs := room.checkedLocations.Get()
 	for slotId, locIDs := range sphere1 {
 		if _, done := room.completeSphere1Slots[int(slotId)]; done {
 			continue
 		}
-		if !isSphere1Incomplete(locIDs, room.checkedLocations[int(slotId)]) {
+		if !isSphere1Incomplete(locIDs, checkedLocs[int(slotId)]) {
 			room.completeSphere1Slots[int(slotId)] = struct{}{}
 		}
 	}
@@ -775,6 +807,7 @@ func isSphere1Incomplete(locIDs []int64, checkedLocations map[int64]bool) bool {
 	return false
 }
 
+// TODO: Cancel on context cancel
 func (rm *HostedRoom) startCheckedLocationPoller(apApiRoot, apRoomId string, interval time.Duration) {
 	go func() {
 		for {
@@ -820,13 +853,13 @@ func (rm *HostedRoom) refreshCheckedLocations(apApiRoot, apRoomId string) error 
 
 	// Invalidate cache for any slot whose checked locations changed
 	for slotId, newLocs := range newChecked {
-		oldLocs := rm.checkedLocations[slotId]
+		oldLocs := rm.checkedLocations.GetSlot(slotId)
 		if len(oldLocs) != len(newLocs) {
 			rm.sphereCache.Invalidate(slotId)
 		}
 	}
 
-	rm.checkedLocations = newChecked
+	rm.checkedLocations.Set(newChecked)
 	return nil
 }
 
